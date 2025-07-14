@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Accurate Parts Scanner</title>
+    <title>Focused Parts Scanner</title>
     <script src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
     <script src="https://unpkg.com/@zxing/browser@latest/umd/index.min.js"></script>
     <style>
@@ -82,13 +82,17 @@
             color: #dc2626;
         }
         
-        input[type="text"], input[type="number"] {
+        input[type="text"], input[type="number"], input[type="range"] {
             width: 100%;
             padding: 15px;
             border: 2px solid #e5e7eb;
             border-radius: 12px;
             font-size: 16px;
             transition: border-color 0.3s;
+        }
+        
+        input[type="range"] {
+            padding: 8px;
         }
         
         input[type="text"]:focus, input[type="number"]:focus {
@@ -149,14 +153,190 @@
             cursor: not-allowed;
         }
         
+        /* ENHANCED SCANNER CONTAINER */
+        .scanner-container {
+            position: relative;
+            margin: 15px 0;
+            border-radius: 12px;
+            overflow: hidden;
+            background: #1f2937;
+        }
+        
         #scanner-video {
             width: 100%;
             height: 300px;
-            border-radius: 12px;
             object-fit: cover;
-            background: #1f2937;
             display: none;
+        }
+        
+        /* SCANNING ZONE OVERLAY */
+        .scanning-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+            display: none;
+        }
+        
+        .scanning-overlay.active {
+            display: block;
+        }
+        
+        /* Dark overlay with transparent scanning zone */
+        .overlay-mask {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.6);
+        }
+        
+        /* Scanning zone cutout */
+        .scanning-zone {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80%;
+            height: 120px;
+            border: 3px solid #10b981;
+            border-radius: 12px;
+            background: transparent;
+            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6);
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { border-color: #10b981; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6), 0 0 20px rgba(16, 185, 129, 0.3); }
+            50% { border-color: #34d399; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6), 0 0 30px rgba(52, 211, 153, 0.5); }
+        }
+        
+        /* Corner guides */
+        .scanning-zone::before,
+        .scanning-zone::after {
+            content: '';
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #10b981;
+        }
+        
+        .scanning-zone::before {
+            top: -3px;
+            left: -3px;
+            border-right: none;
+            border-bottom: none;
+        }
+        
+        .scanning-zone::after {
+            bottom: -3px;
+            right: -3px;
+            border-left: none;
+            border-top: none;
+        }
+        
+        /* Additional corner guides */
+        .corner-guide-tr,
+        .corner-guide-bl {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #10b981;
+        }
+        
+        .corner-guide-tr {
+            top: -3px;
+            right: -3px;
+            border-left: none;
+            border-bottom: none;
+        }
+        
+        .corner-guide-bl {
+            bottom: -3px;
+            left: -3px;
+            border-right: none;
+            border-top: none;
+        }
+        
+        /* Scanning instruction */
+        .scan-instruction {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(16, 185, 129, 0.9);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+            text-align: center;
+            animation: fadeInOut 3s infinite;
+        }
+        
+        @keyframes fadeInOut {
+            0%, 100% { opacity: 0.7; }
+            50% { opacity: 1; }
+        }
+        
+        /* CAMERA CONTROLS */
+        .camera-controls {
             margin: 15px 0;
+            padding: 15px;
+            background: #f9fafb;
+            border-radius: 12px;
+            display: none;
+        }
+        
+        .camera-controls.active {
+            display: block;
+        }
+        
+        .control-group {
+            margin-bottom: 15px;
+        }
+        
+        .control-group:last-child {
+            margin-bottom: 0;
+        }
+        
+        .control-label {
+            display: flex;
+            justify-content: between;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #374151;
+        }
+        
+        .control-value {
+            color: #6b7280;
+            font-size: 13px;
+        }
+        
+        .zoom-buttons {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        
+        .btn-zoom {
+            flex: 1;
+            padding: 8px;
+            border: none;
+            border-radius: 8px;
+            background: #059669;
+            color: white;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        
+        .btn-zoom:hover {
+            background: #047857;
         }
         
         .scanner-info {
@@ -361,14 +541,19 @@
                 width: 100%;
                 justify-content: space-between;
             }
+            
+            .scanning-zone {
+                width: 90%;
+                height: 100px;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🚚 Accurate Parts Scanner</h1>
-            <p>Uses native browser scanner + ZXing fallback for best accuracy</p>
+            <h1>🎯 Focused Parts Scanner</h1>
+            <p>Enhanced with scanning zone & camera controls</p>
         </div>
         
         <div class="content">
@@ -389,17 +574,55 @@
             
             <!-- SCANNING SECTION -->
             <div class="section">
-                <h2 class="section-title">📦 Barcode Scanner</h2>
+                <h2 class="section-title">🎯 Focused Barcode Scanner</h2>
                 
                 <div class="scanner-info" id="scannerInfo">
-                    Initializing accurate scanning system...
+                    Initializing focused scanning system...
                 </div>
                 
                 <button class="btn btn-camera" id="cameraBtn">
-                    📱 Start Scanner
+                    📱 Start Focused Scanner
                 </button>
                 
-                <video id="scanner-video" autoplay playsinline muted></video>
+                <!-- ENHANCED SCANNER CONTAINER -->
+                <div class="scanner-container">
+                    <video id="scanner-video" autoplay playsinline muted></video>
+                    
+                    <!-- SCANNING ZONE OVERLAY -->
+                    <div class="scanning-overlay" id="scanningOverlay">
+                        <div class="overlay-mask"></div>
+                        <div class="scanning-zone">
+                            <div class="corner-guide-tr"></div>
+                            <div class="corner-guide-bl"></div>
+                        </div>
+                        <div class="scan-instruction">Position barcode in green zone</div>
+                    </div>
+                </div>
+                
+                <!-- CAMERA CONTROLS -->
+                <div class="camera-controls" id="cameraControls">
+                    <div class="control-group">
+                        <div class="control-label">
+                            <span>📏 Digital Zoom</span>
+                            <span class="control-value" id="zoomValue">1.0x</span>
+                        </div>
+                        <input type="range" id="zoomSlider" min="1" max="3" step="0.1" value="1">
+                        <div class="zoom-buttons">
+                            <button class="btn-zoom" id="zoom1x">1x</button>
+                            <button class="btn-zoom" id="zoom15x">1.5x</button>
+                            <button class="btn-zoom" id="zoom2x">2x</button>
+                            <button class="btn-zoom" id="zoom3x">3x</button>
+                        </div>
+                    </div>
+                    
+                    <div class="control-group">
+                        <div class="control-label">
+                            <span>🎯 Scanning Zone Size</span>
+                            <span class="control-value" id="zoneValue">80%</span>
+                        </div>
+                        <input type="range" id="zoneSlider" min="60" max="95" step="5" value="80">
+                    </div>
+                </div>
                 
                 <button class="btn btn-manual" id="manualBtn">
                     ⌨️ Manual Entry
@@ -453,16 +676,27 @@
         let nativeBarcodeDetector = null;
         let zxingCodeReader = null;
         let scanningInterval = null;
+        let videoStream = null;
+        let currentZoom = 1;
+        let currentZoneSize = 80;
+        
+        // Canvas for focused scanning
+        let scanCanvas = null;
+        let scanContext = null;
         
         // Prevent duplicate scans within 2 seconds
         const SCAN_COOLDOWN = 2000;
         
         // ========================================
-        // HYBRID SCANNING SYSTEM - NATIVE + ZXING
+        // ENHANCED FOCUSED SCANNING SYSTEM
         // ========================================
         
         async function initializeScanners() {
-            console.log('Initializing hybrid scanning system...');
+            console.log('Initializing focused scanning system...');
+            
+            // Create scanning canvas for focused area extraction
+            scanCanvas = document.createElement('canvas');
+            scanContext = scanCanvas.getContext('2d');
             
             // Try to initialize native BarcodeDetector (most accurate)
             let nativeSupported = false;
@@ -486,7 +720,6 @@
             // Initialize ZXing as fallback/backup
             let zxingSupported = false;
             try {
-                // Check if ZXing loaded properly
                 if (typeof ZXingBrowser !== 'undefined') {
                     const hints = new Map();
                     hints.set(ZXingBrowser.DecodeHintType.TRY_HARDER, true);
@@ -505,7 +738,7 @@
                     zxingSupported = true;
                     console.log('✅ ZXing initialized successfully as fallback');
                 } else {
-                    console.log('❌ ZXingBrowser not available - using native scanner only');
+                    console.log('❌ ZXingBrowser not available');
                 }
             } catch (error) {
                 console.log('❌ ZXing initialization failed:', error);
@@ -514,13 +747,13 @@
             // Update scanner info
             const scannerInfo = document.getElementById('scannerInfo');
             if (nativeSupported && zxingSupported) {
-                scannerInfo.textContent = '🎯 Dual-engine scanner ready: Native + ZXing fallback';
+                scannerInfo.textContent = '🎯 Focused dual-engine scanner ready with scanning zone';
                 scannerInfo.className = 'scanner-info scanner-active';
             } else if (nativeSupported) {
-                scannerInfo.textContent = '📱 Native browser scanner ready (high accuracy)';
+                scannerInfo.textContent = '📱 Focused native scanner ready with scanning zone';
                 scannerInfo.className = 'scanner-info scanner-active';
             } else if (zxingSupported) {
-                scannerInfo.textContent = '📦 ZXing scanner ready (fallback mode)';
+                scannerInfo.textContent = '📦 Focused ZXing scanner ready with scanning zone';
                 scannerInfo.className = 'scanner-info';
             } else {
                 scannerInfo.textContent = '⚠️ No scanners available - manual entry only';
@@ -534,31 +767,45 @@
         async function startScanner() {
             const video = document.getElementById('scanner-video');
             const cameraBtn = document.getElementById('cameraBtn');
+            const scanningOverlay = document.getElementById('scanningOverlay');
+            const cameraControls = document.getElementById('cameraControls');
             
             try {
-                console.log('Starting camera...');
-                showStatus('🔄 Starting camera...', 'info');
+                console.log('Starting focused camera...');
+                showStatus('🔄 Starting focused camera...', 'info');
                 
-                const stream = await navigator.mediaDevices.getUserMedia({
+                // Request high-resolution camera with autofocus
+                const constraints = {
                     video: {
                         facingMode: 'environment',
-                        width: { ideal: 1920 },
-                        height: { ideal: 1080 }
+                        width: { ideal: 1920, min: 1280 },
+                        height: { ideal: 1080, min: 720 },
+                        focusMode: 'continuous',
+                        exposureMode: 'continuous',
+                        whiteBalanceMode: 'continuous'
                     }
-                });
+                };
                 
-                video.srcObject = stream;
+                videoStream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = videoStream;
                 video.style.display = 'block';
-                video.play();
+                await video.play();
+                
+                // Show scanning overlay and controls
+                scanningOverlay.classList.add('active');
+                cameraControls.classList.add('active');
                 
                 scannerActive = true;
                 cameraBtn.textContent = '🛑 Stop Scanner';
                 cameraBtn.classList.add('active');
                 
-                // Start dual scanning system
-                startDualScanning(video);
+                // Apply initial zoom
+                applyZoom(currentZoom);
                 
-                showStatus('🎯 Accurate scanner active! Point at any barcode', 'success');
+                // Start focused scanning system
+                startFocusedScanning(video);
+                
+                showStatus('🎯 Focused scanner active! Position barcode in green zone', 'success');
                 
             } catch (error) {
                 console.error('Camera error:', error);
@@ -566,10 +813,9 @@
             }
         }
         
-        function startDualScanning(video) {
-            console.log('Starting dual scanning system...');
+        function startFocusedScanning(video) {
+            console.log('Starting focused scanning system...');
             
-            // Clear any existing interval
             if (scanningInterval) {
                 clearInterval(scanningInterval);
             }
@@ -582,31 +828,44 @@
                 let scannedCode = null;
                 let scanMethod = '';
                 
-                // Try native BarcodeDetector first (most accurate)
-                if (nativeBarcodeDetector) {
+                // Extract focused scanning area
+                const focusedImageData = extractScanningZone(video);
+                
+                // Try native BarcodeDetector first with focused area
+                if (nativeBarcodeDetector && focusedImageData) {
                     try {
-                        const barcodes = await nativeBarcodeDetector.detect(video);
+                        const barcodes = await nativeBarcodeDetector.detect(focusedImageData);
                         if (barcodes.length > 0) {
                             scannedCode = barcodes[0].rawValue;
-                            scanMethod = `Native ${barcodes[0].format}`;
-                            console.log('✅ Native scan successful:', scannedCode);
+                            scanMethod = `Native-Focused ${barcodes[0].format}`;
+                            console.log('✅ Native focused scan successful:', scannedCode);
                         }
                     } catch (error) {
                         // Silently continue to ZXing if native fails
                     }
                 }
                 
-                // If native didn't find anything, try ZXing
-                if (!scannedCode && zxingCodeReader) {
+                // If native didn't find anything, try ZXing with focused area
+                if (!scannedCode && zxingCodeReader && focusedImageData) {
                     try {
-                        const result = await zxingCodeReader.decodeFromVideoElement(video);
+                        const result = await zxingCodeReader.decodeFromImageElement(focusedImageData);
                         if (result) {
                             scannedCode = result.getText();
-                            scanMethod = `ZXing ${result.getBarcodeFormat()}`;
-                            console.log('✅ ZXing scan successful:', scannedCode);
+                            scanMethod = `ZXing-Focused ${result.getBarcodeFormat()}`;
+                            console.log('✅ ZXing focused scan successful:', scannedCode);
                         }
                     } catch (error) {
-                        // No barcode found - this is normal, don't log
+                        // No barcode found - try full video as fallback
+                        try {
+                            const fullResult = await zxingCodeReader.decodeFromVideoElement(video);
+                            if (fullResult) {
+                                scannedCode = fullResult.getText();
+                                scanMethod = `ZXing-Full ${fullResult.getBarcodeFormat()}`;
+                                console.log('✅ ZXing full scan successful:', scannedCode);
+                            }
+                        } catch (fullError) {
+                            // No barcode found anywhere
+                        }
                     }
                 }
                 
@@ -615,27 +874,107 @@
                     handleScan(scannedCode, scanMethod);
                 }
                 
-            }, 200); // Scan every 200ms for good responsiveness
+            }, 150); // Faster scanning for better responsiveness
+        }
+        
+        function extractScanningZone(video) {
+            try {
+                const videoRect = video.getBoundingClientRect();
+                const videoWidth = video.videoWidth;
+                const videoHeight = video.videoHeight;
+                
+                if (videoWidth === 0 || videoHeight === 0) return null;
+                
+                // Calculate scanning zone dimensions based on current settings
+                const zoneWidthPercent = currentZoneSize / 100;
+                const zoneHeightPercent = 0.4; // Fixed height ratio for barcode scanning
+                
+                const zoneWidth = Math.floor(videoWidth * zoneWidthPercent);
+                const zoneHeight = Math.floor(videoHeight * zoneHeightPercent);
+                const zoneX = Math.floor((videoWidth - zoneWidth) / 2);
+                const zoneY = Math.floor((videoHeight - zoneHeight) / 2);
+                
+                // Set canvas size to match the scanning zone
+                scanCanvas.width = zoneWidth;
+                scanCanvas.height = zoneHeight;
+                
+                // Draw the focused area to canvas
+                scanContext.drawImage(
+                    video,
+                    zoneX, zoneY, zoneWidth, zoneHeight, // Source rectangle (scanning zone)
+                    0, 0, zoneWidth, zoneHeight          // Destination rectangle (full canvas)
+                );
+                
+                return scanCanvas;
+                
+            } catch (error) {
+                console.log('Failed to extract scanning zone:', error);
+                return null;
+            }
+        }
+        
+        function applyZoom(zoomLevel) {
+            const video = document.getElementById('scanner-video');
+            if (videoStream && videoStream.getVideoTracks().length > 0) {
+                const track = videoStream.getVideoTracks()[0];
+                const capabilities = track.getCapabilities();
+                
+                if (capabilities.zoom) {
+                    // Use hardware zoom if available
+                    track.applyConstraints({
+                        advanced: [{
+                            zoom: Math.min(Math.max(zoomLevel, capabilities.zoom.min), capabilities.zoom.max)
+                        }]
+                    }).catch(error => {
+                        console.log('Hardware zoom not supported, using CSS zoom');
+                        applyCSSZoom(video, zoomLevel);
+                    });
+                } else {
+                    // Fallback to CSS zoom
+                    applyCSSZoom(video, zoomLevel);
+                }
+            }
+        }
+        
+        function applyCSSZoom(video, zoomLevel) {
+            video.style.transform = `scale(${zoomLevel})`;
+            video.style.transformOrigin = 'center center';
+        }
+        
+        function updateScanningZoneSize(sizePercent) {
+            const scanningZone = document.querySelector('.scanning-zone');
+            if (scanningZone) {
+                scanningZone.style.width = `${sizePercent}%`;
+                currentZoneSize = sizePercent;
+            }
         }
         
         function stopScanner() {
             const video = document.getElementById('scanner-video');
             const cameraBtn = document.getElementById('cameraBtn');
+            const scanningOverlay = document.getElementById('scanningOverlay');
+            const cameraControls = document.getElementById('cameraControls');
             
             if (scanningInterval) {
                 clearInterval(scanningInterval);
                 scanningInterval = null;
             }
             
-            if (video.srcObject) {
-                const tracks = video.srcObject.getTracks();
+            if (videoStream) {
+                const tracks = videoStream.getTracks();
                 tracks.forEach(track => track.stop());
-                video.srcObject = null;
+                videoStream = null;
             }
             
+            video.srcObject = null;
             video.style.display = 'none';
+            video.style.transform = 'none'; // Reset zoom
+            
+            scanningOverlay.classList.remove('active');
+            cameraControls.classList.remove('active');
+            
             scannerActive = false;
-            cameraBtn.textContent = '📱 Start Scanner';
+            cameraBtn.textContent = '📱 Start Focused Scanner';
             cameraBtn.classList.remove('active');
             
             showStatus('Scanner stopped', 'info');
@@ -646,6 +985,53 @@
                 stopScanner();
             } else {
                 startScanner();
+            }
+        }
+        
+        // ========================================
+        // CAMERA CONTROL HANDLERS
+        // ========================================
+        
+        function setupCameraControls() {
+            const zoomSlider = document.getElementById('zoomSlider');
+            const zoomValue = document.getElementById('zoomValue');
+            const zoneSlider = document.getElementById('zoneSlider');
+            const zoneValue = document.getElementById('zoneValue');
+            
+            // Zoom slider
+            zoomSlider.addEventListener('input', function() {
+                const zoom = parseFloat(this.value);
+                currentZoom = zoom;
+                zoomValue.textContent = `${zoom}x`;
+                if (scannerActive) {
+                    applyZoom(zoom);
+                }
+            });
+            
+            // Zone size slider
+            zoneSlider.addEventListener('input', function() {
+                const size = parseInt(this.value);
+                zoneValue.textContent = `${size}%`;
+                updateScanningZoneSize(size);
+            });
+            
+            // Quick zoom buttons
+            document.getElementById('zoom1x').addEventListener('click', () => setZoom(1.0));
+            document.getElementById('zoom15x').addEventListener('click', () => setZoom(1.5));
+            document.getElementById('zoom2x').addEventListener('click', () => setZoom(2.0));
+            document.getElementById('zoom3x').addEventListener('click', () => setZoom(3.0));
+        }
+        
+        function setZoom(zoomLevel) {
+            const zoomSlider = document.getElementById('zoomSlider');
+            const zoomValue = document.getElementById('zoomValue');
+            
+            zoomSlider.value = zoomLevel;
+            currentZoom = zoomLevel;
+            zoomValue.textContent = `${zoomLevel}x`;
+            
+            if (scannerActive) {
+                applyZoom(zoomLevel);
             }
         }
         
@@ -1042,18 +1428,21 @@
         // ========================================
         
         document.addEventListener('DOMContentLoaded', async function() {
-            console.log('🎯 Accurate Parts Scanner initializing...');
+            console.log('🎯 Focused Parts Scanner initializing...');
             
-            // Initialize the hybrid scanning system
+            // Initialize the focused scanning system
             await initializeScanners();
+            
+            // Setup camera controls
+            setupCameraControls();
             
             // Initial setup
             updatePartsList();
             updateSummary();
             checkCompleteButton();
             
-            console.log('Scanner initialization complete');
-            showStatus('🎯 Accurate scanner ready!', 'success');
+            console.log('Focused scanner initialization complete');
+            showStatus('🎯 Focused scanner ready!', 'success');
         });
         
         // Cleanup on page unload
@@ -1063,7 +1452,7 @@
             }
         });
         
-        console.log('🎯 Accurate barcode scanner loaded - Native + ZXing hybrid system');
+        console.log('🎯 Focused barcode scanner loaded - Enhanced with scanning zone & camera controls');
     </script>
 </body>
 </html>
