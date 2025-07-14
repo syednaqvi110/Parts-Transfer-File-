@@ -938,4 +938,46 @@
         function resetForm() {
             document.getElementById('fromLocation').value = '';
             document.getElementById('toLocation').value = '';
-            parts
+            parts = [];
+            updatePartsList();
+            updateSummary();
+            checkCompleteButton();
+            
+            // Stop camera if active
+            if (cameraActive) {
+                toggleCamera();
+            }
+            
+            // Hide manual input
+            document.getElementById('manualInput').classList.remove('active');
+            
+            showStatus('Ready for next transfer', 'info');
+        }
+        
+        // Initialize app
+        document.addEventListener('DOMContentLoaded', () => {
+            updatePartsList();
+            updateSummary();
+            checkCompleteButton();
+            
+            // Check browser support
+            if (!('mediaDevices' in navigator)) {
+                showStatus('⚠️ Camera not supported', 'error');
+            }
+            
+            // Add event listeners
+            document.getElementById('fromLocation').addEventListener('input', checkCompleteButton);
+            document.getElementById('toLocation').addEventListener('input', checkCompleteButton);
+            
+            document.getElementById('manualBarcode').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    addManualPart();
+                }
+            });
+            
+            console.log('Parts Transfer app initialized');
+            showStatus('Ready to scan parts', 'info');
+        });
+    </script>
+</body>
+</html>
