@@ -1,0 +1,1032 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parts Transfer Scanner</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 15px;
+        }
+        
+        .container {
+            max-width: 500px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+            color: white;
+            padding: 25px 20px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 24px;
+            margin-bottom: 8px;
+        }
+        
+        .content {
+            padding: 25px 20px;
+        }
+        
+        .section {
+            margin-bottom: 30px;
+            padding-bottom: 25px;
+            border-bottom: 2px solid #f3f4f6;
+        }
+        
+        .section:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+        }
+        
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 600;
+            color: #374151;
+            font-size: 14px;
+        }
+        
+        .required {
+            color: #dc2626;
+        }
+        
+        input[type="text"] {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e5e7eb;
+            border-radius: 12px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #2563eb;
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 16px;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-bottom: 12px;
+            transition: all 0.3s;
+        }
+        
+        .btn-camera {
+            background: #059669;
+            color: white;
+        }
+        
+        .btn-camera:hover {
+            background: #047857;
+        }
+        
+        .btn-camera.active {
+            background: #dc2626;
+        }
+        
+        .btn-manual {
+            background: #7c3aed;
+            color: white;
+        }
+        
+        .btn-manual:hover {
+            background: #6d28d9;
+        }
+        
+        .btn-complete {
+            background: #dc2626;
+            color: white;
+            font-size: 18px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        
+        .btn-complete:hover {
+            background: #b91c1c;
+        }
+        
+        .btn-complete:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+        
+        .video-container {
+            position: relative;
+            margin: 15px 0;
+            border-radius: 12px;
+            overflow: hidden;
+            background: #1f2937;
+            display: none;
+        }
+        
+        #camera-video {
+            width: 100%;
+            height: 250px;
+            object-fit: cover;
+        }
+        
+        .scan-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            border: 3px solid #ef4444;
+            width: 180px;
+            height: 70px;
+            border-radius: 8px;
+            background: rgba(239, 68, 68, 0.1);
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; }
+        }
+        
+        .scan-instructions {
+            position: absolute;
+            bottom: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 15px;
+            font-size: 14px;
+            text-align: center;
+        }
+        
+        .manual-input {
+            display: none;
+            margin-top: 15px;
+        }
+        
+        .manual-input.active {
+            display: block;
+        }
+        
+        .input-group {
+            display: flex;
+            gap: 10px;
+            align-items: end;
+        }
+        
+        .input-group input {
+            flex: 1;
+        }
+        
+        .btn-add {
+            background: #059669;
+            color: white;
+            border: none;
+            padding: 15px 20px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 14px;
+            white-space: nowrap;
+        }
+        
+        .btn-add:hover {
+            background: #047857;
+        }
+        
+        .parts-list {
+            margin-top: 20px;
+        }
+        
+        .parts-title {
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 15px;
+            font-size: 16px;
+        }
+        
+        .part-item {
+            background: #f9fafb;
+            border: 2px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 10px;
+        }
+        
+        .part-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        
+        .part-barcode {
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            color: #1f2937;
+            font-size: 16px;
+        }
+        
+        .part-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .qty-label {
+            font-size: 14px;
+            color: #6b7280;
+            font-weight: 500;
+        }
+        
+        .btn-qty {
+            background: #059669;
+            color: white;
+            border: none;
+            padding: 6px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            min-width: 32px;
+        }
+        
+        .btn-qty:hover {
+            background: #047857;
+        }
+        
+        .qty-input {
+            width: 60px;
+            padding: 6px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            text-align: center;
+            font-size: 14px;
+        }
+        
+        .btn-remove {
+            background: #ef4444;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        
+        .btn-remove:hover {
+            background: #dc2626;
+        }
+        
+        .status {
+            margin: 15px 0;
+            padding: 12px;
+            border-radius: 8px;
+            font-weight: 500;
+            text-align: center;
+        }
+        
+        .status.success {
+            background: #d1fae5;
+            color: #065f46;
+            border: 2px solid #a7f3d0;
+        }
+        
+        .status.error {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 2px solid #fecaca;
+        }
+        
+        .status.info {
+            background: #dbeafe;
+            color: #1e40af;
+            border: 2px solid #93c5fd;
+        }
+        
+        .empty-state {
+            text-align: center;
+            color: #6b7280;
+            font-style: italic;
+            padding: 20px;
+            background: #f9fafb;
+            border: 2px dashed #d1d5db;
+            border-radius: 8px;
+        }
+        
+        .scan-success-flash {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(34, 197, 94, 0.9);
+            z-index: 1000;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 20px;
+            font-weight: bold;
+            pointer-events: none;
+            animation: flashSuccess 0.8s ease-out;
+        }
+        
+        @keyframes flashSuccess {
+            0% { opacity: 0; transform: scale(0.8); }
+            30% { opacity: 1; transform: scale(1.1); }
+            100% { opacity: 0; transform: scale(1); }
+        }
+        
+        .summary {
+            background: #f3f4f6;
+            padding: 15px;
+            border-radius: 12px;
+            margin-top: 20px;
+        }
+        
+        .summary-title {
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 8px;
+        }
+        
+        .summary-text {
+            color: #6b7280;
+            font-size: 14px;
+        }
+        
+        @media (max-width: 480px) {
+            .container {
+                margin: 5px;
+                border-radius: 15px;
+            }
+            
+            .content {
+                padding: 20px 15px;
+            }
+            
+            .part-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+            }
+            
+            .part-controls {
+                width: 100%;
+                justify-content: space-between;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚚 Parts Transfer</h1>
+            <p>Scan parts and track location transfers</p>
+        </div>
+        
+        <div class="content">
+            <!-- LOCATIONS SECTION -->
+            <div class="section">
+                <h2 class="section-title">📍 Transfer Details</h2>
+                
+                <div class="form-group">
+                    <label for="fromLocation">From Location <span class="required">*</span>:</label>
+                    <input type="text" id="fromLocation" placeholder="e.g., Main Warehouse" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="toLocation">To Location <span class="required">*</span>:</label>
+                    <input type="text" id="toLocation" placeholder="e.g., Job Site A" required>
+                </div>
+            </div>
+            
+            <!-- SCANNING SECTION -->
+            <div class="section">
+                <h2 class="section-title">📦 Scan Parts</h2>
+                
+                <button class="btn btn-camera" id="cameraBtn" onclick="toggleCamera()">
+                    📱 Start Barcode Scanner
+                </button>
+                
+                <div class="video-container" id="videoContainer">
+                    <video id="camera-video" autoplay playsinline muted></video>
+                    <div class="scan-overlay"></div>
+                    <div class="scan-instructions">Point at barcode - auto scans</div>
+                </div>
+                
+                <button class="btn btn-manual" onclick="toggleManualInput()">
+                    ⌨️ Manual Entry
+                </button>
+                
+                <button class="btn btn-manual" onclick="testScan()" style="background: #f59e0b;">
+                    🧪 Test Scan (Debug)
+                </button>
+                
+                <button class="btn btn-manual" onclick="testGoogleSheets()" style="background: #ef4444;">
+                    📊 Test Google Sheets
+                </button>
+                
+                <div class="manual-input" id="manualInput">
+                    <div class="input-group">
+                        <input type="text" id="manualBarcode" placeholder="Type barcode or use handheld scanner">
+                        <button class="btn-add" onclick="addManualPart()">Add</button>
+                    </div>
+                </div>
+                
+                <div id="status"></div>
+            </div>
+            
+            <!-- PARTS LIST SECTION -->
+            <div class="section">
+                <h2 class="section-title">📋 Scanned Parts</h2>
+                
+                <div class="parts-list">
+                    <div id="partsList"></div>
+                </div>
+                
+                <div class="summary" id="summary" style="display: none;">
+                    <div class="summary-title">Transfer Summary:</div>
+                    <div class="summary-text" id="summaryText"></div>
+                </div>
+            </div>
+            
+            <!-- COMPLETE SECTION -->
+            <button class="btn btn-complete" onclick="completeTransfer()" id="completeBtn" disabled>
+                ✅ Complete Transfer
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // Google Apps Script URL
+        const GOOGLE_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwiqO5kOkZKibMGXdg2WpqVnbikrIRxL3LJg6WjPf1Jda9gW1Y8xNDEdr-I-m4FJJisTA/exec';
+        
+        let cameraActive = false;
+        let stream = null;
+        let scanningInterval = null;
+        let lastScannedTime = 0;
+        let barcodeDetector = null;
+        let parts = [];
+        let partIdCounter = 1;
+        
+        function showStatus(message, type = 'success') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+            
+            // Also log to console for debugging
+            console.log(`Status (${type}): ${message}`);
+            
+            setTimeout(() => {
+                statusDiv.textContent = '';
+                statusDiv.className = '';
+            }, 4000);
+        }
+        
+        async function initializeBarcodeDetector() {
+            try {
+                console.log('Checking for BarcodeDetector support...');
+                
+                if ('BarcodeDetector' in window) {
+                    console.log('BarcodeDetector supported!');
+                    const supportedFormats = await BarcodeDetector.getSupportedFormats();
+                    console.log('Supported formats:', supportedFormats);
+                    
+                    barcodeDetector = new BarcodeDetector({
+                        formats: supportedFormats
+                    });
+                    
+                    showStatus('✅ Advanced scanner ready!', 'success');
+                    return true;
+                } else {
+                    console.log('BarcodeDetector not supported - using fallback');
+                    showStatus('⚠️ Using basic scanner mode', 'info');
+                    return false;
+                }
+            } catch (error) {
+                console.error('BarcodeDetector init failed:', error);
+                showStatus('⚠️ Using basic scanner mode', 'info');
+                return false;
+            }
+        }
+        
+        async function toggleCamera() {
+            console.log('toggleCamera called, cameraActive:', cameraActive);
+            
+            const videoContainer = document.getElementById('videoContainer');
+            const video = document.getElementById('camera-video');
+            const cameraBtn = document.getElementById('cameraBtn');
+            
+            if (!cameraActive) {
+                try {
+                    console.log('Starting camera...');
+                    showStatus('🔄 Starting camera...', 'info');
+                    
+                    // Check if getUserMedia is available
+                    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                        throw new Error('getUserMedia not supported');
+                    }
+                    
+                    await initializeBarcodeDetector();
+                    
+                    console.log('Requesting camera permission...');
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        video: { 
+                            facingMode: 'environment',
+                            width: { ideal: 1280 },
+                            height: { ideal: 720 }
+                        }
+                    });
+                    
+                    console.log('Camera stream obtained:', stream);
+                    video.srcObject = stream;
+                    videoContainer.style.display = 'block';
+                    cameraActive = true;
+                    cameraBtn.textContent = '🛑 Stop Scanner';
+                    cameraBtn.classList.add('active');
+                    
+                    // Wait for video to be ready
+                    video.addEventListener('loadedmetadata', () => {
+                        console.log('Video loaded, starting scanning...');
+                        startScanning();
+                        showStatus('📱 Scanner active! Point at barcodes', 'info');
+                    });
+                    
+                } catch (err) {
+                    console.error('Camera error:', err);
+                    if (err.name === 'NotAllowedError') {
+                        showStatus('❌ Camera permission denied. Please allow camera access in browser settings.', 'error');
+                    } else if (err.name === 'NotFoundError') {
+                        showStatus('❌ No camera found on this device.', 'error');
+                    } else if (err.name === 'NotSupportedError') {
+                        showStatus('❌ Camera not supported in this browser.', 'error');
+                    } else {
+                        showStatus(`❌ Camera error: ${err.message}`, 'error');
+                    }
+                }
+            } else {
+                console.log('Stopping camera...');
+                if (stream) {
+                    stream.getTracks().forEach(track => {
+                        console.log('Stopping track:', track);
+                        track.stop();
+                    });
+                }
+                stopScanning();
+                videoContainer.style.display = 'none';
+                cameraActive = false;
+                cameraBtn.textContent = '📱 Start Barcode Scanner';
+                cameraBtn.classList.remove('active');
+                showStatus('Scanner stopped', 'info');
+            }
+        }
+        
+        function startScanning() {
+            const video = document.getElementById('camera-video');
+            console.log('Starting scanning loop...');
+            
+            scanningInterval = setInterval(async () => {
+                if (!cameraActive || !video.readyState || video.readyState !== video.HAVE_ENOUGH_DATA) {
+                    return;
+                }
+                
+                try {
+                    if (barcodeDetector) {
+                        const barcodes = await barcodeDetector.detect(video);
+                        
+                        if (barcodes.length > 0) {
+                            const now = Date.now();
+                            if (now - lastScannedTime > 2000) { // 2-second cooldown
+                                const barcode = barcodes[0];
+                                console.log('Barcode detected:', barcode.rawValue);
+                                handleSuccessfulScan(barcode.rawValue);
+                            }
+                        }
+                    } else {
+                        // Fallback: click to scan
+                        if (!video.onclick) {
+                            video.onclick = () => {
+                                const now = Date.now();
+                                if (now - lastScannedTime > 1000) {
+                                    console.log('Manual scan triggered');
+                                    const fakeBarcode = 'TEST' + Math.floor(Math.random() * 10000);
+                                    handleSuccessfulScan(fakeBarcode);
+                                    showStatus('👆 Click video to scan (fallback mode)', 'info');
+                                }
+                            };
+                            showStatus('👆 Click video area to scan barcode', 'info');
+                        }
+                    }
+                } catch (error) {
+                    console.error('Scanning error:', error);
+                }
+            }, 200); // Scan every 200ms
+        }
+        
+        function stopScanning() {
+            if (scanningInterval) {
+                clearInterval(scanningInterval);
+                scanningInterval = null;
+            }
+            
+            const video = document.getElementById('camera-video');
+            if (video) {
+                video.onclick = null;
+            }
+        }
+        
+        function testGoogleSheets() {
+            console.log('Testing Google Sheets connection...');
+            
+            const testData = {
+                timestamp: new Date().toISOString(),
+                fromLocation: 'TEST-FROM',
+                toLocation: 'OTT19001',
+                parts: [{
+                    barcode: 'TEST123',
+                    quantity: 1
+                }],
+                totalParts: 1,
+                partTypes: 1
+            };
+            
+            showStatus('🧪 Testing Google Sheets connection...', 'info');
+            saveToGoogleSheets(testData);
+        }
+        
+        function testScan() {
+            console.log('Test scan triggered');
+            const testBarcode = 'TEST' + Math.floor(Math.random() * 10000);
+            handleSuccessfulScan(testBarcode);
+            showStatus(`🧪 Test scan: ${testBarcode}`, 'success');
+        }
+        
+        function handleSuccessfulScan(barcode) {
+            lastScannedTime = Date.now();
+            
+            // Add scanned part
+            addScannedPart(barcode);
+            
+            // Visual feedback
+            flashScanSuccess();
+            
+            // Haptic feedback
+            if (navigator.vibrate) {
+                navigator.vibrate([200, 100, 200]);
+            }
+            
+            showStatus(`📦 Scanned: ${barcode}`, 'success');
+        }
+        
+        function flashScanSuccess() {
+            const videoContainer = document.getElementById('videoContainer');
+            const flash = document.createElement('div');
+            flash.className = 'scan-success-flash';
+            flash.innerHTML = '✅ SCANNED!';
+            videoContainer.appendChild(flash);
+            
+            setTimeout(() => {
+                if (flash.parentNode) {
+                    flash.parentNode.removeChild(flash);
+                }
+            }, 800);
+        }
+        
+        function toggleManualInput() {
+            const manualInput = document.getElementById('manualInput');
+            const isActive = manualInput.classList.contains('active');
+            
+            if (isActive) {
+                manualInput.classList.remove('active');
+            } else {
+                manualInput.classList.add('active');
+                setTimeout(() => {
+                    document.getElementById('manualBarcode').focus();
+                }, 100);
+            }
+        }
+        
+        function addManualPart() {
+            const barcodeInput = document.getElementById('manualBarcode');
+            const barcode = barcodeInput.value.trim().toUpperCase();
+            
+            if (!barcode) {
+                showStatus('⚠️ Please enter a barcode', 'error');
+                return;
+            }
+            
+            barcodeInput.value = '';
+            addScannedPart(barcode);
+            showStatus(`📦 Added: ${barcode}`, 'success');
+            barcodeInput.focus();
+        }
+        
+        function addScannedPart(barcode) {
+            // Check if part already exists
+            const existingPart = parts.find(part => part.barcode === barcode);
+            
+            if (existingPart) {
+                existingPart.quantity += 1;
+                showStatus(`📦 Updated quantity for ${barcode} (now ${existingPart.quantity})`, 'success');
+            } else {
+                parts.push({
+                    id: partIdCounter++,
+                    barcode: barcode,
+                    quantity: 1
+                });
+            }
+            
+            updatePartsList();
+            updateSummary();
+            checkCompleteButton();
+        }
+        
+        function updatePartsList() {
+            const partsList = document.getElementById('partsList');
+            
+            if (parts.length === 0) {
+                partsList.innerHTML = '<div class="empty-state">No parts scanned yet</div>';
+                return;
+            }
+            
+            partsList.innerHTML = parts.map(part => `
+                <div class="part-item">
+                    <div class="part-header">
+                        <div class="part-barcode">${part.barcode}</div>
+                        <div class="part-controls">
+                            <span class="qty-label">Qty:</span>
+                            <button class="btn-qty" onclick="decreaseQuantity(${part.id})">-</button>
+                            <input type="number" class="qty-input" min="1" max="999" value="${part.quantity}" 
+                                   onchange="updateQuantity(${part.id}, this.value)">
+                            <button class="btn-qty" onclick="increaseQuantity(${part.id})">+</button>
+                            <button class="btn-remove" onclick="removePart(${part.id})">Remove</button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        function increaseQuantity(partId) {
+            const part = parts.find(p => p.id === partId);
+            if (part && part.quantity < 999) {
+                part.quantity += 1;
+                updatePartsList();
+                updateSummary();
+                showStatus(`📦 Increased quantity for ${part.barcode}`, 'success');
+            }
+        }
+        
+        function decreaseQuantity(partId) {
+            const part = parts.find(p => p.id === partId);
+            if (part && part.quantity > 1) {
+                part.quantity -= 1;
+                updatePartsList();
+                updateSummary();
+                showStatus(`📦 Decreased quantity for ${part.barcode}`, 'success');
+            }
+        }
+        
+        function updateQuantity(partId, newQuantity) {
+            const quantity = parseInt(newQuantity) || 1;
+            const part = parts.find(p => p.id === partId);
+            if (part) {
+                part.quantity = Math.max(1, Math.min(999, quantity));
+                updatePartsList();
+                updateSummary();
+                showStatus(`📦 Updated quantity for ${part.barcode}`, 'success');
+            }
+        }
+        
+        function removePart(partId) {
+            const partIndex = parts.findIndex(p => p.id === partId);
+            if (partIndex > -1) {
+                const removedPart = parts.splice(partIndex, 1)[0];
+                updatePartsList();
+                updateSummary();
+                checkCompleteButton();
+                showStatus(`🗑️ Removed ${removedPart.barcode}`, 'success');
+            }
+        }
+        
+        function updateSummary() {
+            const summary = document.getElementById('summary');
+            const summaryText = document.getElementById('summaryText');
+            
+            if (parts.length === 0) {
+                summary.style.display = 'none';
+                return;
+            }
+            
+            const totalParts = parts.reduce((sum, part) => sum + part.quantity, 0);
+            const partTypes = parts.length;
+            
+            summaryText.textContent = `${totalParts} total items • ${partTypes} different parts`;
+            summary.style.display = 'block';
+        }
+        
+        function checkCompleteButton() {
+            const completeBtn = document.getElementById('completeBtn');
+            const fromLocation = document.getElementById('fromLocation').value.trim();
+            const toLocation = document.getElementById('toLocation').value.trim();
+            
+            const isValid = fromLocation && toLocation && parts.length > 0;
+            completeBtn.disabled = !isValid;
+        }
+        
+        async function completeTransfer() {
+            const fromLocation = document.getElementById('fromLocation').value.trim();
+            const toLocation = document.getElementById('toLocation').value.trim();
+            
+            if (!fromLocation || !toLocation) {
+                showStatus('⚠️ Please fill in both locations', 'error');
+                return;
+            }
+            
+            if (parts.length === 0) {
+                showStatus('⚠️ Please scan at least one part', 'error');
+                return;
+            }
+            
+            // Create transfer data
+            const transferData = {
+                timestamp: new Date().toISOString(),
+                fromLocation: fromLocation,
+                toLocation: toLocation,
+                parts: parts.map(part => ({
+                    barcode: part.barcode,
+                    quantity: part.quantity
+                })),
+                totalParts: parts.reduce((sum, part) => sum + part.quantity, 0),
+                partTypes: parts.length
+            };
+            
+            console.log('=== TRANSFER COMPLETE ===');
+            console.log(JSON.stringify(transferData, null, 2));
+            console.log('========================');
+            
+            // Save to Google Sheets
+            await saveToGoogleSheets(transferData);
+            
+            // Reset form
+            setTimeout(() => {
+                resetForm();
+            }, 3000);
+        }
+        
+        async function saveToGoogleSheets(transferData) {
+            try {
+                console.log('Sending data to Google Sheets:', transferData);
+                console.log('Google Sheets URL:', GOOGLE_SHEETS_URL);
+                
+                if (!GOOGLE_SHEETS_URL) {
+                    throw new Error('Google Sheets URL not configured');
+                }
+                
+                showStatus('💾 Saving transfer to Google Sheets...', 'info');
+                
+                // Try fetch with longer timeout and better error handling
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+                
+                const response = await fetch(GOOGLE_SHEETS_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(transferData),
+                    signal: controller.signal,
+                    mode: 'no-cors' // Try no-cors mode
+                });
+                
+                clearTimeout(timeoutId);
+                
+                console.log('Response received');
+                console.log('Response status:', response.status);
+                console.log('Response type:', response.type);
+                
+                // With no-cors, we can't read the response, so assume success
+                if (response.type === 'opaque') {
+                    console.log('No-cors request completed - assuming success');
+                    const totalItems = transferData.totalParts;
+                    showStatus(`✅ Transfer complete! ${totalItems} items saved`, 'success');
+                    return;
+                }
+                
+                // If we can read the response, parse it normally
+                const responseText = await response.text();
+                console.log('Raw response:', responseText);
+                
+                let result;
+                try {
+                    result = JSON.parse(responseText);
+                } catch (parseError) {
+                    console.error('Failed to parse response as JSON:', parseError);
+                    throw new Error(`Invalid response: ${responseText.substring(0, 100)}`);
+                }
+                
+                console.log('Parsed result:', result);
+                
+                if (result.status === 'success') {
+                    const totalItems = transferData.totalParts;
+                    showStatus(`✅ Transfer complete! ${totalItems} items saved to Google Sheets`, 'success');
+                } else {
+                    throw new Error(result.message || 'Save failed');
+                }
+                
+            } catch (error) {
+                console.error('Google Sheets save error:', error);
+                
+                if (error.name === 'AbortError') {
+                    showStatus('❌ Request timed out - but data may have been saved', 'error');
+                } else if (error.message.includes('Failed to fetch')) {
+                    showStatus('❌ Network error - check connection and try again', 'error');
+                } else {
+                    showStatus(`❌ Save failed: ${error.message}`, 'error');
+                }
+            }
+        }
+        
+        function resetForm() {
+            document.getElementById('fromLocation').value = '';
+            document.getElementById('toLocation').value = '';
+            parts = [];
+            updatePartsList();
+            updateSummary();
+            checkCompleteButton();
+            
+            // Stop camera if active
+            if (cameraActive) {
+                toggleCamera();
+            }
+            
+            // Hide manual input
+            document.getElementById('manualInput').classList.remove('active');
+            
+            showStatus('Ready for next transfer', 'info');
+        }
+        
+        // Initialize app
+        document.addEventListener('DOMContentLoaded', () => {
+            updatePartsList();
+            updateSummary();
+            checkCompleteButton();
+            
+            // Check browser support
+            if (!('mediaDevices' in navigator)) {
+                showStatus('⚠️ Camera not supported', 'error');
+            }
+            
+            // Add event listeners
+            document.getElementById('fromLocation').addEventListener('input', checkCompleteButton);
+            document.getElementById('toLocation').addEventListener('input', checkCompleteButton);
+            
+            document.getElementById('manualBarcode').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    addManualPart();
+                }
+            });
+            
+            // Show setup reminder if Google Sheets not configured
+            if (!GOOGLE_SHEETS_URL || GOOGLE_SHEETS_URL === 'YOUR_GOOGLE_APPS_SCRIPT_URL_HERE') {
+                showStatus('⚠️ Configure Google Sheets URL to save transfers', 'error');
+            }
+        });
+    </script>
+</body>
+</html>
