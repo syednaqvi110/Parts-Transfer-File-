@@ -207,11 +207,23 @@
             background: transparent;
             box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6);
             animation: pulse 2s infinite;
+            transition: all 0.3s ease;
+        }
+        
+        /* Cooldown state for scanning zone */
+        .scanning-zone.cooldown {
+            border-color: #3b82f6;
+            animation: cooldownPulse 1s ease-out;
         }
         
         @keyframes pulse {
             0%, 100% { border-color: #10b981; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6), 0 0 20px rgba(16, 185, 129, 0.3); }
             50% { border-color: #34d399; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6), 0 0 30px rgba(52, 211, 153, 0.5); }
+        }
+        
+        @keyframes cooldownPulse {
+            0% { border-color: #34d399; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6), 0 0 30px rgba(52, 211, 153, 0.8); }
+            100% { border-color: #3b82f6; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6), 0 0 15px rgba(59, 130, 246, 0.3); }
         }
         
         /* Corner guides */
@@ -222,6 +234,11 @@
             width: 20px;
             height: 20px;
             border: 3px solid #10b981;
+        }
+        
+        .scanning-zone.cooldown::before,
+        .scanning-zone.cooldown::after {
+            border-color: #3b82f6;
         }
         
         .scanning-zone::before {
@@ -245,6 +262,12 @@
             width: 20px;
             height: 20px;
             border: 3px solid #10b981;
+            transition: border-color 0.3s ease;
+        }
+        
+        .scanning-zone.cooldown .corner-guide-tr,
+        .scanning-zone.cooldown .corner-guide-bl {
+            border-color: #3b82f6;
         }
         
         .corner-guide-tr {
@@ -275,6 +298,12 @@
             font-weight: 600;
             text-align: center;
             animation: fadeInOut 3s infinite;
+            transition: all 0.3s ease;
+        }
+        
+        .scan-instruction.cooldown {
+            background: rgba(59, 130, 246, 0.9);
+            animation: none;
         }
         
         @keyframes fadeInOut {
@@ -553,7 +582,7 @@
     <div class="container">
         <div class="header">
             <h1>🎯 Focused Parts Scanner</h1>
-            <p>Enhanced with scanning zone & camera controls</p>
+            <p>Enhanced with movement detection & scan reset</p>
         </div>
         
         <div class="content">
@@ -574,14 +603,14 @@
             
             <!-- SCANNING SECTION -->
             <div class="section">
-                <h2 class="section-title">🎯 Focused Barcode Scanner</h2>
+                <h2 class="section-title">🎯 Smart Movement Scanner</h2>
                 
                 <div class="scanner-info" id="scannerInfo">
-                    Initializing focused scanning system...
+                    Initializing movement-aware scanning system...
                 </div>
                 
                 <button class="btn btn-camera" id="cameraBtn">
-                    📱 Start Focused Scanner
+                    📱 Start Smart Scanner
                 </button>
                 
                 <!-- ENHANCED SCANNER CONTAINER -->
@@ -591,11 +620,11 @@
                     <!-- SCANNING ZONE OVERLAY -->
                     <div class="scanning-overlay" id="scanningOverlay">
                         <div class="overlay-mask"></div>
-                        <div class="scanning-zone">
+                        <div class="scanning-zone" id="scanningZone">
                             <div class="corner-guide-tr"></div>
                             <div class="corner-guide-bl"></div>
                         </div>
-                        <div class="scan-instruction">Position barcode in green zone</div>
+                        <div class="scan-instruction" id="scanInstruction">Position barcode in green zone</div>
                     </div>
                 </div>
                 
@@ -672,6 +701,12 @@
         let lastScannedCode = '';
         let lastScannedTime = 0;
         
+        // Movement detection state
+        let lastBarcodePosition = null;
+        let scanCooldownActive = false;
+        let barcodeLeftZone = false;
+        let scannedBarcodes = new Map(); // Track barcode positions and states
+        
         // Scanner components
         let nativeBarcodeDetector = null;
         let zxingCodeReader = null;
@@ -684,15 +719,17 @@
         let scanCanvas = null;
         let scanContext = null;
         
-        // Prevent duplicate scans within 2 seconds
-        const SCAN_COOLDOWN = 2000;
+        // Movement detection constants
+        const MOVEMENT_THRESHOLD = 50; // pixels
+        const COOLDOWN_DURATION = 1500; // 1.5 seconds
+        const ZONE_EXIT_REQUIRED = true; // Require barcode to leave zone before re-scan
         
         // ========================================
-        // ENHANCED FOCUSED SCANNING SYSTEM
+        // ENHANCED MOVEMENT-AWARE SCANNING SYSTEM
         // ========================================
         
         async function initializeScanners() {
-            console.log('Initializing focused scanning system...');
+            console.log('Initializing movement-aware scanning system...');
             
             // Create scanning canvas for focused area extraction
             scanCanvas = document.createElement('canvas');
@@ -747,13 +784,13 @@
             // Update scanner info
             const scannerInfo = document.getElementById('scannerInfo');
             if (nativeSupported && zxingSupported) {
-                scannerInfo.textContent = '🎯 Focused dual-engine scanner ready with scanning zone';
+                scannerInfo.textContent = '🎯 Smart dual-engine scanner with movement detection ready';
                 scannerInfo.className = 'scanner-info scanner-active';
             } else if (nativeSupported) {
-                scannerInfo.textContent = '📱 Focused native scanner ready with scanning zone';
+                scannerInfo.textContent = '📱 Smart native scanner with movement detection ready';
                 scannerInfo.className = 'scanner-info scanner-active';
             } else if (zxingSupported) {
-                scannerInfo.textContent = '📦 Focused ZXing scanner ready with scanning zone';
+                scannerInfo.textContent = '📦 Smart ZXing scanner with movement detection ready';
                 scannerInfo.className = 'scanner-info';
             } else {
                 scannerInfo.textContent = '⚠️ No scanners available - manual entry only';
@@ -771,8 +808,8 @@
             const cameraControls = document.getElementById('cameraControls');
             
             try {
-                console.log('Starting focused camera...');
-                showStatus('🔄 Starting focused camera...', 'info');
+                console.log('Starting movement-aware camera...');
+                showStatus('🔄 Starting smart camera...', 'info');
                 
                 // Request high-resolution camera with autofocus
                 const constraints = {
@@ -799,13 +836,16 @@
                 cameraBtn.textContent = '🛑 Stop Scanner';
                 cameraBtn.classList.add('active');
                 
+                // Reset movement detection state
+                resetMovementDetection();
+                
                 // Apply initial zoom
                 applyZoom(currentZoom);
                 
-                // Start focused scanning system
-                startFocusedScanning(video);
+                // Start movement-aware scanning system
+                startMovementAwareScanning(video);
                 
-                showStatus('🎯 Focused scanner active! Position barcode in green zone', 'success');
+                showStatus('🎯 Smart scanner active! Move barcode to scan repeatedly', 'success');
                 
             } catch (error) {
                 console.error('Camera error:', error);
@@ -813,8 +853,8 @@
             }
         }
         
-        function startFocusedScanning(video) {
-            console.log('Starting focused scanning system...');
+        function startMovementAwareScanning(video) {
+            console.log('Starting movement-aware scanning system...');
             
             if (scanningInterval) {
                 clearInterval(scanningInterval);
@@ -827,6 +867,7 @@
                 
                 let scannedCode = null;
                 let scanMethod = '';
+                let barcodePosition = null;
                 
                 // Extract focused scanning area
                 const focusedImageData = extractScanningZone(video);
@@ -837,8 +878,9 @@
                         const barcodes = await nativeBarcodeDetector.detect(focusedImageData);
                         if (barcodes.length > 0) {
                             scannedCode = barcodes[0].rawValue;
-                            scanMethod = `Native-Focused ${barcodes[0].format}`;
-                            console.log('✅ Native focused scan successful:', scannedCode);
+                            scanMethod = `Native-Smart ${barcodes[0].format}`;
+                            barcodePosition = calculateBarcodePosition(barcodes[0]);
+                            console.log('✅ Native smart scan detected:', scannedCode, 'at position:', barcodePosition);
                         }
                     } catch (error) {
                         // Silently continue to ZXing if native fails
@@ -851,332 +893,76 @@
                         const result = await zxingCodeReader.decodeFromImageElement(focusedImageData);
                         if (result) {
                             scannedCode = result.getText();
-                            scanMethod = `ZXing-Focused ${result.getBarcodeFormat()}`;
-                            console.log('✅ ZXing focused scan successful:', scannedCode);
+                            scanMethod = `ZXing-Smart ${result.getBarcodeFormat()}`;
+                            // For ZXing, we use center position since we don't get exact coordinates
+                            barcodePosition = { x: 50, y: 50 }; // Center percentage
+                            console.log('✅ ZXing smart scan detected:', scannedCode);
                         }
                     } catch (error) {
-                        // No barcode found - try full video as fallback
-                        try {
-                            const fullResult = await zxingCodeReader.decodeFromVideoElement(video);
-                            if (fullResult) {
-                                scannedCode = fullResult.getText();
-                                scanMethod = `ZXing-Full ${fullResult.getBarcodeFormat()}`;
-                                console.log('✅ ZXing full scan successful:', scannedCode);
-                            }
-                        } catch (fullError) {
-                            // No barcode found anywhere
-                        }
+                        // No barcode found - this is normal
                     }
                 }
                 
-                // Process the scanned code if found
+                // Process the scanned code with movement detection
                 if (scannedCode) {
-                    handleScan(scannedCode, scanMethod);
+                    handleMovementAwareScan(scannedCode, scanMethod, barcodePosition);
+                } else {
+                    // No barcode detected - check if we need to reset zone state
+                    handleNoBarcodeDetected();
                 }
                 
             }, 150); // Faster scanning for better responsiveness
         }
         
-        function extractScanningZone(video) {
-            try {
-                const videoRect = video.getBoundingClientRect();
-                const videoWidth = video.videoWidth;
-                const videoHeight = video.videoHeight;
-                
-                if (videoWidth === 0 || videoHeight === 0) return null;
-                
-                // Calculate scanning zone dimensions based on current settings
-                const zoneWidthPercent = currentZoneSize / 100;
-                const zoneHeightPercent = 0.4; // Fixed height ratio for barcode scanning
-                
-                const zoneWidth = Math.floor(videoWidth * zoneWidthPercent);
-                const zoneHeight = Math.floor(videoHeight * zoneHeightPercent);
-                const zoneX = Math.floor((videoWidth - zoneWidth) / 2);
-                const zoneY = Math.floor((videoHeight - zoneHeight) / 2);
-                
-                // Set canvas size to match the scanning zone
-                scanCanvas.width = zoneWidth;
-                scanCanvas.height = zoneHeight;
-                
-                // Draw the focused area to canvas
-                scanContext.drawImage(
-                    video,
-                    zoneX, zoneY, zoneWidth, zoneHeight, // Source rectangle (scanning zone)
-                    0, 0, zoneWidth, zoneHeight          // Destination rectangle (full canvas)
-                );
-                
-                return scanCanvas;
-                
-            } catch (error) {
-                console.log('Failed to extract scanning zone:', error);
-                return null;
+        function calculateBarcodePosition(barcode) {
+            // Calculate position as percentage of scanning zone
+            const boundingBox = barcode.boundingBox;
+            if (boundingBox) {
+                const centerX = (boundingBox.x + boundingBox.width / 2) / scanCanvas.width * 100;
+                const centerY = (boundingBox.y + boundingBox.height / 2) / scanCanvas.height * 100;
+                return { x: centerX, y: centerY };
             }
+            return { x: 50, y: 50 }; // Default to center
         }
         
-        function applyZoom(zoomLevel) {
-            const video = document.getElementById('scanner-video');
-            if (videoStream && videoStream.getVideoTracks().length > 0) {
-                const track = videoStream.getVideoTracks()[0];
-                const capabilities = track.getCapabilities();
-                
-                if (capabilities.zoom) {
-                    // Use hardware zoom if available
-                    track.applyConstraints({
-                        advanced: [{
-                            zoom: Math.min(Math.max(zoomLevel, capabilities.zoom.min), capabilities.zoom.max)
-                        }]
-                    }).catch(error => {
-                        console.log('Hardware zoom not supported, using CSS zoom');
-                        applyCSSZoom(video, zoomLevel);
-                    });
-                } else {
-                    // Fallback to CSS zoom
-                    applyCSSZoom(video, zoomLevel);
-                }
-            }
-        }
-        
-        function applyCSSZoom(video, zoomLevel) {
-            video.style.transform = `scale(${zoomLevel})`;
-            video.style.transformOrigin = 'center center';
-        }
-        
-        function updateScanningZoneSize(sizePercent) {
-            const scanningZone = document.querySelector('.scanning-zone');
-            if (scanningZone) {
-                scanningZone.style.width = `${sizePercent}%`;
-                currentZoneSize = sizePercent;
-            }
-        }
-        
-        function stopScanner() {
-            const video = document.getElementById('scanner-video');
-            const cameraBtn = document.getElementById('cameraBtn');
-            const scanningOverlay = document.getElementById('scanningOverlay');
-            const cameraControls = document.getElementById('cameraControls');
-            
-            if (scanningInterval) {
-                clearInterval(scanningInterval);
-                scanningInterval = null;
-            }
-            
-            if (videoStream) {
-                const tracks = videoStream.getTracks();
-                tracks.forEach(track => track.stop());
-                videoStream = null;
-            }
-            
-            video.srcObject = null;
-            video.style.display = 'none';
-            video.style.transform = 'none'; // Reset zoom
-            
-            scanningOverlay.classList.remove('active');
-            cameraControls.classList.remove('active');
-            
-            scannerActive = false;
-            cameraBtn.textContent = '📱 Start Focused Scanner';
-            cameraBtn.classList.remove('active');
-            
-            showStatus('Scanner stopped', 'info');
-        }
-        
-        function toggleScanner() {
-            if (scannerActive) {
-                stopScanner();
-            } else {
-                startScanner();
-            }
-        }
-        
-        // ========================================
-        // CAMERA CONTROL HANDLERS
-        // ========================================
-        
-        function setupCameraControls() {
-            const zoomSlider = document.getElementById('zoomSlider');
-            const zoomValue = document.getElementById('zoomValue');
-            const zoneSlider = document.getElementById('zoneSlider');
-            const zoneValue = document.getElementById('zoneValue');
-            
-            // Zoom slider
-            zoomSlider.addEventListener('input', function() {
-                const zoom = parseFloat(this.value);
-                currentZoom = zoom;
-                zoomValue.textContent = `${zoom}x`;
-                if (scannerActive) {
-                    applyZoom(zoom);
-                }
-            });
-            
-            // Zone size slider
-            zoneSlider.addEventListener('input', function() {
-                const size = parseInt(this.value);
-                zoneValue.textContent = `${size}%`;
-                updateScanningZoneSize(size);
-            });
-            
-            // Quick zoom buttons
-            document.getElementById('zoom1x').addEventListener('click', () => setZoom(1.0));
-            document.getElementById('zoom15x').addEventListener('click', () => setZoom(1.5));
-            document.getElementById('zoom2x').addEventListener('click', () => setZoom(2.0));
-            document.getElementById('zoom3x').addEventListener('click', () => setZoom(3.0));
-        }
-        
-        function setZoom(zoomLevel) {
-            const zoomSlider = document.getElementById('zoomSlider');
-            const zoomValue = document.getElementById('zoomValue');
-            
-            zoomSlider.value = zoomLevel;
-            currentZoom = zoomLevel;
-            zoomValue.textContent = `${zoomLevel}x`;
-            
-            if (scannerActive) {
-                applyZoom(zoomLevel);
-            }
-        }
-        
-        // ========================================
-        // EVENT DELEGATION SYSTEM
-        // ========================================
-        
-        document.addEventListener('click', function(event) {
-            const target = event.target;
-            
-            if (target.id === 'cameraBtn') {
-                toggleScanner();
-                return;
-            }
-            
-            if (target.id === 'manualBtn') {
-                toggleManualInput();
-                return;
-            }
-            
-            if (target.id === 'addBtn') {
-                addManualPart();
-                return;
-            }
-            
-            if (target.id === 'completeBtn') {
-                completeTransfer();
-                return;
-            }
-            
-            if (target.classList.contains('btn-qty-decrease')) {
-                const partId = parseInt(target.getAttribute('data-part-id'));
-                decreaseQuantity(partId);
-                return;
-            }
-            
-            if (target.classList.contains('btn-qty-increase')) {
-                const partId = parseInt(target.getAttribute('data-part-id'));
-                increaseQuantity(partId);
-                return;
-            }
-            
-            if (target.classList.contains('btn-remove')) {
-                const partId = parseInt(target.getAttribute('data-part-id'));
-                removePart(partId);
-                return;
-            }
-        });
-        
-        document.addEventListener('change', function(event) {
-            const target = event.target;
-            
-            if (target.classList.contains('qty-input')) {
-                const partId = parseInt(target.getAttribute('data-part-id'));
-                updateQuantity(partId, target.value);
-                return;
-            }
-            
-            if (target.id === 'fromLocation' || target.id === 'toLocation') {
-                checkCompleteButton();
-                return;
-            }
-        });
-        
-        document.addEventListener('keypress', function(event) {
-            if (event.target.id === 'manualBarcode' && event.key === 'Enter') {
-                addManualPart();
-            }
-        });
-        
-        // ========================================
-        // UTILITY FUNCTIONS
-        // ========================================
-        
-        function showStatus(message, type = 'success') {
-            const statusDiv = document.getElementById('status');
-            statusDiv.textContent = message;
-            statusDiv.className = `status ${type}`;
-            console.log(`Status: ${message}`);
-            
-            setTimeout(() => {
-                statusDiv.textContent = '';
-                statusDiv.className = '';
-            }, 3000);
-        }
-        
-        function cleanBarcode(code) {
-            if (!code || typeof code !== 'string') return '';
-            
-            // Remove whitespace and normalize
-            let cleaned = code.trim().toUpperCase();
-            
-            // Basic validation
-            if (cleaned.length < 2 || cleaned.length > 50) return '';
-            
-            return cleaned;
-        }
-        
-        function toggleManualInput() {
-            const manualInput = document.getElementById('manualInput');
-            if (manualInput.classList.contains('active')) {
-                manualInput.classList.remove('active');
-            } else {
-                manualInput.classList.add('active');
-                document.getElementById('manualBarcode').focus();
-            }
-        }
-        
-        function addManualPart() {
-            const barcodeInput = document.getElementById('manualBarcode');
-            const barcode = cleanBarcode(barcodeInput.value);
-            
-            if (!barcode) {
-                showStatus('⚠️ Please enter a valid barcode', 'error');
-                return;
-            }
-            
-            barcodeInput.value = '';
-            handleScan(barcode, 'Manual Entry');
-            barcodeInput.focus();
-        }
-        
-        // ========================================
-        // BARCODE HANDLING
-        // ========================================
-        
-        function handleScan(code, scanMethod) {
-            const now = Date.now();
+        function handleMovementAwareScan(code, scanMethod, position) {
             const cleanCode = cleanBarcode(code);
+            if (!cleanCode) return;
             
-            if (!cleanCode) {
-                console.log('Invalid barcode filtered out:', code);
-                return;
+            const now = Date.now();
+            
+            // Check if this barcode is in cooldown
+            if (scanCooldownActive && lastScannedCode === cleanCode) {
+                // Check if barcode has moved significantly or left the zone
+                if (position && lastBarcodePosition) {
+                    const distance = Math.sqrt(
+                        Math.pow(position.x - lastBarcodePosition.x, 2) + 
+                        Math.pow(position.y - lastBarcodePosition.y, 2)
+                    );
+                    
+                    if (distance < MOVEMENT_THRESHOLD && !barcodeLeftZone) {
+                        // Still in cooldown and hasn't moved enough
+                        updateCooldownUI();
+                        return;
+                    }
+                }
             }
             
-            // Prevent duplicate scans
-            if (cleanCode === lastScannedCode && (now - lastScannedTime) < SCAN_COOLDOWN) {
-                console.log('Duplicate scan ignored:', cleanCode);
-                return;
+            // Reset cooldown state for new barcode or sufficient movement
+            if (lastScannedCode !== cleanCode || barcodeLeftZone) {
+                resetScanCooldown();
             }
             
+            // Process the scan
             lastScannedCode = cleanCode;
             lastScannedTime = now;
+            lastBarcodePosition = position;
+            barcodeLeftZone = false;
             
-            console.log(`✅ Processing ${scanMethod}: ${cleanCode}`);
+            console.log(`✅ Processing ${scanMethod}: ${cleanCode} at position:`, position);
+            
+            // Activate cooldown and visual feedback
+            activateScanCooldown();
             
             // Vibrate if available
             if (navigator.vibrate) {
@@ -1204,255 +990,66 @@
             checkCompleteButton();
         }
         
-        // ========================================
-        // PARTS LIST MANAGEMENT
-        // ========================================
-        
-        function createPartElement(part) {
-            const partDiv = document.createElement('div');
-            partDiv.className = 'part-item';
-            
-            const partHeader = document.createElement('div');
-            partHeader.className = 'part-header';
-            
-            const partBarcode = document.createElement('div');
-            partBarcode.className = 'part-barcode';
-            partBarcode.textContent = part.barcode;
-            
-            const partControls = document.createElement('div');
-            partControls.className = 'part-controls';
-            
-            const qtyLabel = document.createElement('span');
-            qtyLabel.className = 'qty-label';
-            qtyLabel.textContent = 'Qty:';
-            
-            const decreaseBtn = document.createElement('button');
-            decreaseBtn.className = 'btn-qty btn-qty-decrease';
-            decreaseBtn.textContent = '-';
-            decreaseBtn.setAttribute('data-part-id', part.id);
-            
-            const qtyInput = document.createElement('input');
-            qtyInput.type = 'number';
-            qtyInput.className = 'qty-input';
-            qtyInput.min = '1';
-            qtyInput.max = '999';
-            qtyInput.value = part.quantity;
-            qtyInput.setAttribute('data-part-id', part.id);
-            
-            const increaseBtn = document.createElement('button');
-            increaseBtn.className = 'btn-qty btn-qty-increase';
-            increaseBtn.textContent = '+';
-            increaseBtn.setAttribute('data-part-id', part.id);
-            
-            const removeBtn = document.createElement('button');
-            removeBtn.className = 'btn-remove';
-            removeBtn.textContent = 'Remove';
-            removeBtn.setAttribute('data-part-id', part.id);
-            
-            partControls.appendChild(qtyLabel);
-            partControls.appendChild(decreaseBtn);
-            partControls.appendChild(qtyInput);
-            partControls.appendChild(increaseBtn);
-            partControls.appendChild(removeBtn);
-            
-            partHeader.appendChild(partBarcode);
-            partHeader.appendChild(partControls);
-            partDiv.appendChild(partHeader);
-            
-            return partDiv;
-        }
-        
-        function updatePartsList() {
-            const partsList = document.getElementById('partsList');
-            
-            while (partsList.firstChild) {
-                partsList.removeChild(partsList.firstChild);
-            }
-            
-            if (parts.length === 0) {
-                const emptyDiv = document.createElement('div');
-                emptyDiv.className = 'empty-state';
-                emptyDiv.textContent = 'No parts scanned yet';
-                partsList.appendChild(emptyDiv);
-                return;
-            }
-            
-            parts.forEach(part => {
-                const partElement = createPartElement(part);
-                partsList.appendChild(partElement);
-            });
-        }
-        
-        function increaseQuantity(partId) {
-            const part = parts.find(p => p.id === partId);
-            if (part && part.quantity < 999) {
-                part.quantity += 1;
-                updatePartsList();
-                updateSummary();
+        function handleNoBarcodeDetected() {
+            // If we were tracking a barcode and now don't see it, mark it as having left the zone
+            if (lastScannedCode && scanCooldownActive) {
+                if (!barcodeLeftZone) {
+                    barcodeLeftZone = true;
+                    console.log('Barcode left scanning zone - ready for re-scan');
+                    
+                    // Update instruction text
+                    const instruction = document.getElementById('scanInstruction');
+                    if (instruction.classList.contains('cooldown')) {
+                        instruction.textContent = 'Barcode ready - position in zone to scan';
+                    }
+                }
             }
         }
         
-        function decreaseQuantity(partId) {
-            const part = parts.find(p => p.id === partId);
-            if (part && part.quantity > 1) {
-                part.quantity -= 1;
-                updatePartsList();
-                updateSummary();
+        function activateScanCooldown() {
+            scanCooldownActive = true;
+            
+            // Visual feedback
+            const scanningZone = document.getElementById('scanningZone');
+            const instruction = document.getElementById('scanInstruction');
+            
+            scanningZone.classList.add('cooldown');
+            instruction.classList.add('cooldown');
+            instruction.textContent = 'Scanned! Move barcode away to scan again';
+            
+            // Auto-reset cooldown after duration
+            setTimeout(() => {
+                if (scanCooldownActive) {
+                    resetScanCooldown();
+                }
+            }, COOLDOWN_DURATION);
+        }
+        
+        function resetScanCooldown() {
+            scanCooldownActive = false;
+            barcodeLeftZone = false;
+            
+            // Reset visual feedback
+            const scanningZone = document.getElementById('scanningZone');
+            const instruction = document.getElementById('scanInstruction');
+            
+            scanningZone.classList.remove('cooldown');
+            instruction.classList.remove('cooldown');
+            instruction.textContent = 'Position barcode in green zone';
+        }
+        
+        function updateCooldownUI() {
+            const instruction = document.getElementById('scanInstruction');
+            if (instruction.classList.contains('cooldown')) {
+                instruction.textContent = 'Move barcode away to scan again';
             }
         }
         
-        function updateQuantity(partId, newQuantity) {
-            const quantity = parseInt(newQuantity) || 1;
-            const part = parts.find(p => p.id === partId);
-            if (part) {
-                part.quantity = Math.max(1, Math.min(999, quantity));
-                updatePartsList();
-                updateSummary();
-            }
+        function resetMovementDetection() {
+            lastBarcodePosition = null;
+            scanCooldownActive = false;
+            barcodeLeftZone = false;
+            lastScannedCode = '';
+            scannedBarcodes.clear();
+            resetScanCooldown();
         }
-        
-        function removePart(partId) {
-            const partIndex = parts.findIndex(p => p.id === partId);
-            if (partIndex > -1) {
-                const removedPart = parts.splice(partIndex, 1)[0];
-                updatePartsList();
-                updateSummary();
-                checkCompleteButton();
-                showStatus(`🗑️ Removed ${removedPart.barcode}`, 'success');
-            }
-        }
-        
-        function updateSummary() {
-            const summary = document.getElementById('summary');
-            const summaryText = document.getElementById('summaryText');
-            
-            if (parts.length === 0) {
-                summary.style.display = 'none';
-                return;
-            }
-            
-            const totalParts = parts.reduce((sum, part) => sum + part.quantity, 0);
-            const partTypes = parts.length;
-            
-            summaryText.textContent = `${totalParts} total items • ${partTypes} different parts`;
-            summary.style.display = 'block';
-        }
-        
-        function checkCompleteButton() {
-            const completeBtn = document.getElementById('completeBtn');
-            const fromLocation = document.getElementById('fromLocation').value.trim();
-            const toLocation = document.getElementById('toLocation').value.trim();
-            
-            const isValid = fromLocation && toLocation && parts.length > 0;
-            completeBtn.disabled = !isValid;
-        }
-        
-        // ========================================
-        // TRANSFER COMPLETION
-        // ========================================
-        
-        function completeTransfer() {
-            const fromLocation = document.getElementById('fromLocation').value.trim();
-            const toLocation = document.getElementById('toLocation').value.trim();
-            
-            if (!fromLocation || !toLocation) {
-                showStatus('⚠️ Please fill in both locations', 'error');
-                return;
-            }
-            
-            if (parts.length === 0) {
-                showStatus('⚠️ Please scan at least one part', 'error');
-                return;
-            }
-            
-            const transferData = {
-                timestamp: new Date().toISOString(),
-                fromLocation: fromLocation,
-                toLocation: toLocation,
-                parts: parts.map(part => ({
-                    barcode: part.barcode,
-                    quantity: part.quantity
-                })),
-                totalParts: parts.reduce((sum, part) => sum + part.quantity, 0),
-                partTypes: parts.length
-            };
-            
-            console.log('Transfer data:', transferData);
-            saveToGoogleSheets(transferData);
-        }
-        
-        function saveToGoogleSheets(transferData) {
-            showStatus('💾 Saving transfer...', 'info');
-            
-            fetch(GOOGLE_SHEETS_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(transferData),
-                mode: 'no-cors'
-            })
-            .then(() => {
-                console.log('Save request sent');
-                const totalItems = transferData.totalParts;
-                showStatus(`✅ Transfer complete! ${totalItems} items saved`, 'success');
-                
-                setTimeout(() => {
-                    resetForm();
-                }, 3000);
-            })
-            .catch(error => {
-                console.error('Save error:', error);
-                showStatus('❌ Save failed - try again', 'error');
-            });
-        }
-        
-        function resetForm() {
-            document.getElementById('fromLocation').value = '';
-            document.getElementById('toLocation').value = '';
-            parts = [];
-            updatePartsList();
-            updateSummary();
-            checkCompleteButton();
-            
-            if (scannerActive) {
-                stopScanner();
-            }
-            
-            document.getElementById('manualInput').classList.remove('active');
-            showStatus('Ready for next transfer', 'info');
-        }
-        
-        // ========================================
-        // INITIALIZATION
-        // ========================================
-        
-        document.addEventListener('DOMContentLoaded', async function() {
-            console.log('🎯 Focused Parts Scanner initializing...');
-            
-            // Initialize the focused scanning system
-            await initializeScanners();
-            
-            // Setup camera controls
-            setupCameraControls();
-            
-            // Initial setup
-            updatePartsList();
-            updateSummary();
-            checkCompleteButton();
-            
-            console.log('Focused scanner initialization complete');
-            showStatus('🎯 Focused scanner ready!', 'success');
-        });
-        
-        // Cleanup on page unload
-        window.addEventListener('beforeunload', function() {
-            if (scannerActive) {
-                stopScanner();
-            }
-        });
-        
-        console.log('🎯 Focused barcode scanner loaded - Enhanced with scanning zone & camera controls');
-    </script>
-</body>
-</html>
