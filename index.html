@@ -581,8 +581,7 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🎯 Focused Parts Scanner</h1>
-            <p>Enhanced with movement detection & scan reset</p>
+            <h1>Parts Transfer Window</h1>
         </div>
         
         <div class="content">
@@ -603,14 +602,14 @@
             
             <!-- SCANNING SECTION -->
             <div class="section">
-                <h2 class="section-title">🎯 Smart Movement Scanner</h2>
+                <h2 class="section-title">🎯 Barcode Scanner</h2>
                 
                 <div class="scanner-info" id="scannerInfo">
-                    Initializing movement-aware scanning system...
+                    Scanner ready
                 </div>
                 
                 <button class="btn btn-camera" id="cameraBtn">
-                    📱 Start Smart Scanner
+                    📱 Start Scanner
                 </button>
                 
                 <!-- ENHANCED SCANNER CONTAINER -->
@@ -624,7 +623,7 @@
                             <div class="corner-guide-tr"></div>
                             <div class="corner-guide-bl"></div>
                         </div>
-                        <div class="scan-instruction" id="scanInstruction">Position barcode in green zone</div>
+                        <div class="scan-instruction" id="scanInstruction">Position barcode in zone</div>
                     </div>
                 </div>
                 
@@ -784,16 +783,16 @@
             // Update scanner info
             const scannerInfo = document.getElementById('scannerInfo');
             if (nativeSupported && zxingSupported) {
-                scannerInfo.textContent = '🎯 Smart dual-engine scanner with movement detection ready';
+                scannerInfo.textContent = 'Scanner ready';
                 scannerInfo.className = 'scanner-info scanner-active';
             } else if (nativeSupported) {
-                scannerInfo.textContent = '📱 Smart native scanner with movement detection ready';
+                scannerInfo.textContent = 'Scanner ready';
                 scannerInfo.className = 'scanner-info scanner-active';
             } else if (zxingSupported) {
-                scannerInfo.textContent = '📦 Smart ZXing scanner with movement detection ready';
+                scannerInfo.textContent = 'Scanner ready';
                 scannerInfo.className = 'scanner-info';
             } else {
-                scannerInfo.textContent = '⚠️ No scanners available - manual entry only';
+                scannerInfo.textContent = 'Manual entry only';
                 scannerInfo.className = 'scanner-info';
                 document.getElementById('cameraBtn').disabled = true;
             }
@@ -808,8 +807,8 @@
             const cameraControls = document.getElementById('cameraControls');
             
             try {
-                console.log('Starting movement-aware camera...');
-                showStatus('🔄 Starting smart camera...', 'info');
+                console.log('Starting camera...');
+                showStatus('Starting camera...', 'info');
                 
                 // Request high-resolution camera with autofocus
                 const constraints = {
@@ -845,11 +844,11 @@
                 // Start movement-aware scanning system
                 startMovementAwareScanning(video);
                 
-                showStatus('🎯 Smart scanner active! Move barcode to scan repeatedly', 'success');
+                showStatus('Scanner active', 'success');
                 
             } catch (error) {
                 console.error('Camera error:', error);
-                showStatus('❌ Camera permission denied or not available', 'error');
+                showStatus('Camera not available', 'error');
             }
         }
         
@@ -974,7 +973,7 @@
             
             if (existingPart) {
                 existingPart.quantity += 1;
-                showStatus(`📦 Updated: ${cleanCode} (qty: ${existingPart.quantity})`, 'success');
+                showStatus(`Updated: ${cleanCode} (qty: ${existingPart.quantity})`, 'success');
             } else {
                 parts.push({
                     id: partIdCounter++,
@@ -982,7 +981,7 @@
                     quantity: 1,
                     scanMethod: scanMethod
                 });
-                showStatus(`📦 Added: ${cleanCode}`, 'success');
+                showStatus(`Added: ${cleanCode}`, 'success');
             }
             
             updatePartsList();
@@ -1015,7 +1014,7 @@
             
             scanningZone.classList.add('cooldown');
             instruction.classList.add('cooldown');
-            instruction.textContent = 'Scanned! Move barcode away to scan again';
+            instruction.textContent = 'Move barcode away to scan again';
             
             // Auto-reset cooldown after duration
             setTimeout(() => {
@@ -1035,7 +1034,7 @@
             
             scanningZone.classList.remove('cooldown');
             instruction.classList.remove('cooldown');
-            instruction.textContent = 'Position barcode in green zone';
+            instruction.textContent = 'Position barcode in zone';
         }
         
         function updateCooldownUI() {
