@@ -3,8 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Simple Parts Scanner</title>
-    <script src="https://cdn.jsdelivr.net/npm/quagga@0.12.1/dist/quagga.min.js"></script>
+    <title>Accurate Parts Scanner</title>
+    <script src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
+    <script src="https://unpkg.com/@zxing/browser@latest/umd/index.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -148,43 +149,29 @@
             cursor: not-allowed;
         }
         
-        #scanner-container {
-            position: relative;
-            margin: 15px 0;
-            border-radius: 12px;
-            overflow: hidden;
-            background: #1f2937;
-            display: none;
+        #scanner-video {
             width: 100%;
             height: 300px;
-        }
-        
-        #scanner-container video {
-            width: 100%;
-            height: 100%;
+            border-radius: 12px;
             object-fit: cover;
+            background: #1f2937;
+            display: none;
+            margin: 15px 0;
         }
         
-        /* QuaggaJS canvas overlays */
-        #scanner-container canvas {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-        }
-        
-        .scan-info {
-            position: absolute;
-            bottom: 15px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0,0,0,0.8);
-            color: white;
-            padding: 8px 16px;
-            border-radius: 15px;
-            font-size: 14px;
+        .scanner-info {
             text-align: center;
+            padding: 10px;
+            background: #f3f4f6;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-size: 14px;
+            color: #6b7280;
+        }
+        
+        .scanner-active {
+            background: #d1fae5;
+            color: #065f46;
         }
         
         .manual-input {
@@ -380,8 +367,8 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🚚 Simple Parts Scanner</h1>
-            <p>Scans Code 128, Code 39, and QR codes instantly</p>
+            <h1>🚚 Accurate Parts Scanner</h1>
+            <p>Uses native browser scanner + ZXing fallback for best accuracy</p>
         </div>
         
         <div class="content">
@@ -404,13 +391,15 @@
             <div class="section">
                 <h2 class="section-title">📦 Barcode Scanner</h2>
                 
+                <div class="scanner-info" id="scannerInfo">
+                    Initializing accurate scanning system...
+                </div>
+                
                 <button class="btn btn-camera" id="cameraBtn">
                     📱 Start Scanner
                 </button>
                 
-                <div id="scanner-container">
-                    <div class="scan-info">Point camera at Code 128, Code 39, or QR code</div>
-                </div>
+                <video id="scanner-video" autoplay playsinline muted></video>
                 
                 <button class="btn btn-manual" id="manualBtn">
                     ⌨️ Manual Entry
@@ -453,52 +442,240 @@
         // Google Apps Script URL
         const GOOGLE_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyCVe8VytbR-UqcXEcshlfbbVf6cG3Y61PfP3hnpZPY1QvIDxIUALpB2_StHCf4MC3VZA/exec';
         
-        // Simple application state
+        // Application state
         let scannerActive = false;
         let parts = [];
         let partIdCounter = 1;
         let lastScannedCode = '';
         let lastScannedTime = 0;
         
-        // Prevent duplicate scans within 1 second
-        const SCAN_COOLDOWN = 1000;
+        // Scanner components
+        let nativeBarcodeDetector = null;
+        let zxingCodeReader = null;
+        let scanningInterval = null;
+        
+        // Prevent duplicate scans within 2 seconds
+        const SCAN_COOLDOWN = 2000;
         
         // ========================================
-        // SIMPLE EVENT DELEGATION SYSTEM
+        // HYBRID SCANNING SYSTEM - NATIVE + ZXING
+        // ========================================
+        
+        async function initializeScanners() {
+            console.log('Initializing hybrid scanning system...');
+            
+            // Try to initialize native BarcodeDetector (most accurate)
+            let nativeSupported = false;
+            if ('BarcodeDetector' in window) {
+                try {
+                    const supportedFormats = await BarcodeDetector.getSupportedFormats();
+                    console.log('Native BarcodeDetector supported formats:', supportedFormats);
+                    
+                    nativeBarcodeDetector = new BarcodeDetector({
+                        formats: supportedFormats.filter(format => 
+                            ['code_128', 'code_39', 'qr_code', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'data_matrix'].includes(format)
+                        )
+                    });
+                    nativeSupported = true;
+                    console.log('✅ Native BarcodeDetector initialized successfully');
+                } catch (error) {
+                    console.log('❌ Native BarcodeDetector failed:', error);
+                }
+            }
+            
+            // Initialize ZXing as fallback/backup
+            let zxingSupported = false;
+            try {
+                // Check if ZXing loaded properly
+                if (typeof ZXingBrowser !== 'undefined') {
+                    const hints = new Map();
+                    hints.set(ZXingBrowser.DecodeHintType.TRY_HARDER, true);
+                    hints.set(ZXingBrowser.DecodeHintType.POSSIBLE_FORMATS, [
+                        ZXingBrowser.BarcodeFormat.CODE_128,
+                        ZXingBrowser.BarcodeFormat.CODE_39,
+                        ZXingBrowser.BarcodeFormat.EAN_13,
+                        ZXingBrowser.BarcodeFormat.EAN_8,
+                        ZXingBrowser.BarcodeFormat.UPC_A,
+                        ZXingBrowser.BarcodeFormat.UPC_E,
+                        ZXingBrowser.BarcodeFormat.QR_CODE,
+                        ZXingBrowser.BarcodeFormat.DATA_MATRIX
+                    ]);
+                    
+                    zxingCodeReader = new ZXingBrowser.BrowserMultiFormatReader(hints);
+                    zxingSupported = true;
+                    console.log('✅ ZXing initialized successfully as fallback');
+                } else {
+                    console.log('❌ ZXingBrowser not available - using native scanner only');
+                }
+            } catch (error) {
+                console.log('❌ ZXing initialization failed:', error);
+            }
+            
+            // Update scanner info
+            const scannerInfo = document.getElementById('scannerInfo');
+            if (nativeSupported && zxingSupported) {
+                scannerInfo.textContent = '🎯 Dual-engine scanner ready: Native + ZXing fallback';
+                scannerInfo.className = 'scanner-info scanner-active';
+            } else if (nativeSupported) {
+                scannerInfo.textContent = '📱 Native browser scanner ready (high accuracy)';
+                scannerInfo.className = 'scanner-info scanner-active';
+            } else if (zxingSupported) {
+                scannerInfo.textContent = '📦 ZXing scanner ready (fallback mode)';
+                scannerInfo.className = 'scanner-info';
+            } else {
+                scannerInfo.textContent = '⚠️ No scanners available - manual entry only';
+                scannerInfo.className = 'scanner-info';
+                document.getElementById('cameraBtn').disabled = true;
+            }
+            
+            return { nativeSupported, zxingSupported };
+        }
+        
+        async function startScanner() {
+            const video = document.getElementById('scanner-video');
+            const cameraBtn = document.getElementById('cameraBtn');
+            
+            try {
+                console.log('Starting camera...');
+                showStatus('🔄 Starting camera...', 'info');
+                
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'environment',
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 }
+                    }
+                });
+                
+                video.srcObject = stream;
+                video.style.display = 'block';
+                video.play();
+                
+                scannerActive = true;
+                cameraBtn.textContent = '🛑 Stop Scanner';
+                cameraBtn.classList.add('active');
+                
+                // Start dual scanning system
+                startDualScanning(video);
+                
+                showStatus('🎯 Accurate scanner active! Point at any barcode', 'success');
+                
+            } catch (error) {
+                console.error('Camera error:', error);
+                showStatus('❌ Camera permission denied or not available', 'error');
+            }
+        }
+        
+        function startDualScanning(video) {
+            console.log('Starting dual scanning system...');
+            
+            // Clear any existing interval
+            if (scanningInterval) {
+                clearInterval(scanningInterval);
+            }
+            
+            scanningInterval = setInterval(async () => {
+                if (!scannerActive || !video.readyState || video.readyState !== video.HAVE_ENOUGH_DATA) {
+                    return;
+                }
+                
+                let scannedCode = null;
+                let scanMethod = '';
+                
+                // Try native BarcodeDetector first (most accurate)
+                if (nativeBarcodeDetector) {
+                    try {
+                        const barcodes = await nativeBarcodeDetector.detect(video);
+                        if (barcodes.length > 0) {
+                            scannedCode = barcodes[0].rawValue;
+                            scanMethod = `Native ${barcodes[0].format}`;
+                            console.log('✅ Native scan successful:', scannedCode);
+                        }
+                    } catch (error) {
+                        // Silently continue to ZXing if native fails
+                    }
+                }
+                
+                // If native didn't find anything, try ZXing
+                if (!scannedCode && zxingCodeReader) {
+                    try {
+                        const result = await zxingCodeReader.decodeFromVideoElement(video);
+                        if (result) {
+                            scannedCode = result.getText();
+                            scanMethod = `ZXing ${result.getBarcodeFormat()}`;
+                            console.log('✅ ZXing scan successful:', scannedCode);
+                        }
+                    } catch (error) {
+                        // No barcode found - this is normal, don't log
+                    }
+                }
+                
+                // Process the scanned code if found
+                if (scannedCode) {
+                    handleScan(scannedCode, scanMethod);
+                }
+                
+            }, 200); // Scan every 200ms for good responsiveness
+        }
+        
+        function stopScanner() {
+            const video = document.getElementById('scanner-video');
+            const cameraBtn = document.getElementById('cameraBtn');
+            
+            if (scanningInterval) {
+                clearInterval(scanningInterval);
+                scanningInterval = null;
+            }
+            
+            if (video.srcObject) {
+                const tracks = video.srcObject.getTracks();
+                tracks.forEach(track => track.stop());
+                video.srcObject = null;
+            }
+            
+            video.style.display = 'none';
+            scannerActive = false;
+            cameraBtn.textContent = '📱 Start Scanner';
+            cameraBtn.classList.remove('active');
+            
+            showStatus('Scanner stopped', 'info');
+        }
+        
+        function toggleScanner() {
+            if (scannerActive) {
+                stopScanner();
+            } else {
+                startScanner();
+            }
+        }
+        
+        // ========================================
+        // EVENT DELEGATION SYSTEM
         // ========================================
         
         document.addEventListener('click', function(event) {
             const target = event.target;
             
-            // Camera button
             if (target.id === 'cameraBtn') {
-                console.log('Camera button clicked');
                 toggleScanner();
                 return;
             }
             
-            // Manual input button
             if (target.id === 'manualBtn') {
-                console.log('Manual button clicked');
                 toggleManualInput();
                 return;
             }
             
-            // Add manual part button
             if (target.id === 'addBtn') {
-                console.log('Add button clicked');
                 addManualPart();
                 return;
             }
             
-            // Complete transfer button
             if (target.id === 'completeBtn') {
-                console.log('Complete button clicked');
                 completeTransfer();
                 return;
             }
             
-            // Quantity controls for dynamic parts
             if (target.classList.contains('btn-qty-decrease')) {
                 const partId = parseInt(target.getAttribute('data-part-id'));
                 decreaseQuantity(partId);
@@ -518,7 +695,6 @@
             }
         });
         
-        // Handle input changes
         document.addEventListener('change', function(event) {
             const target = event.target;
             
@@ -534,7 +710,6 @@
             }
         });
         
-        // Handle Enter key for manual input
         document.addEventListener('keypress', function(event) {
             if (event.target.id === 'manualBarcode' && event.key === 'Enter') {
                 addManualPart();
@@ -560,140 +735,13 @@
         function cleanBarcode(code) {
             if (!code || typeof code !== 'string') return '';
             
-            // Remove whitespace and convert to uppercase
+            // Remove whitespace and normalize
             let cleaned = code.trim().toUpperCase();
             
-            // Basic length validation
+            // Basic validation
             if (cleaned.length < 2 || cleaned.length > 50) return '';
             
             return cleaned;
-        }
-        
-        // ========================================
-        // SCANNER FUNCTIONS - SIMPLE & EFFECTIVE
-        // ========================================
-        
-        function toggleScanner() {
-            const cameraBtn = document.getElementById('cameraBtn');
-            const scannerContainer = document.getElementById('scanner-container');
-            
-            if (!scannerActive) {
-                console.log('Starting scanner...');
-                startScanner();
-            } else {
-                console.log('Stopping scanner...');
-                stopScanner();
-            }
-        }
-        
-        function startScanner() {
-            const cameraBtn = document.getElementById('cameraBtn');
-            const scannerContainer = document.getElementById('scanner-container');
-            
-            showStatus('🔄 Starting scanner...', 'info');
-            
-            // QuaggaJS configuration for 1D barcodes
-            Quagga.init({
-                inputStream: {
-                    name: "Live",
-                    type: "LiveStream",
-                    target: scannerContainer,
-                    constraints: {
-                        width: 640,
-                        height: 480,
-                        facingMode: "environment"
-                    }
-                },
-                decoder: {
-                    readers: [
-                        "code_128_reader",  // Code 128
-                        "code_39_reader",   // Code 39
-                        "ean_reader",       // EAN-13
-                        "ean_8_reader",     // EAN-8
-                        "upc_reader",       // UPC-A
-                        "upc_e_reader"      // UPC-E
-                    ]
-                },
-                locate: true
-            }, function(err) {
-                if (err) {
-                    console.error('Scanner initialization failed:', err);
-                    showStatus('❌ Scanner failed to start', 'error');
-                    return;
-                }
-                
-                console.log('Scanner initialized successfully');
-                Quagga.start();
-                
-                scannerActive = true;
-                scannerContainer.style.display = 'block';
-                cameraBtn.textContent = '🛑 Stop Scanner';
-                cameraBtn.classList.add('active');
-                
-                showStatus('📱 Scanner active! Point at barcode', 'success');
-            });
-            
-            // Handle successful barcode detection
-            Quagga.onDetected(function(result) {
-                const code = result.codeResult.code;
-                const format = result.codeResult.format;
-                
-                console.log(`Detected ${format}: ${code}`);
-                handleScan(code, format);
-            });
-            
-            // Also try native BarcodeDetector for QR codes if available
-            tryNativeQRScanner();
-        }
-        
-        function stopScanner() {
-            const cameraBtn = document.getElementById('cameraBtn');
-            const scannerContainer = document.getElementById('scanner-container');
-            
-            if (scannerActive) {
-                Quagga.stop();
-                scannerActive = false;
-                scannerContainer.style.display = 'none';
-                cameraBtn.textContent = '📱 Start Scanner';
-                cameraBtn.classList.remove('active');
-                
-                showStatus('Scanner stopped', 'info');
-            }
-        }
-        
-        // Try to add QR code support using native BarcodeDetector
-        function tryNativeQRScanner() {
-            if ('BarcodeDetector' in window) {
-                console.log('Adding QR code support...');
-                
-                const video = document.querySelector('#scanner-container video');
-                if (!video) return;
-                
-                const qrDetector = new BarcodeDetector({ formats: ['qr_code'] });
-                
-                const scanQR = async () => {
-                    if (!scannerActive || !video.readyState) return;
-                    
-                    try {
-                        const barcodes = await qrDetector.detect(video);
-                        if (barcodes.length > 0) {
-                            const qrCode = barcodes[0].rawValue;
-                            console.log('QR Code detected:', qrCode);
-                            handleScan(qrCode, 'qr_code');
-                        }
-                    } catch (error) {
-                        // Silently ignore QR scanning errors
-                    }
-                    
-                    if (scannerActive) {
-                        setTimeout(scanQR, 500); // Check for QR codes every 500ms
-                    }
-                };
-                
-                video.addEventListener('loadeddata', () => {
-                    scanQR();
-                });
-            }
         }
         
         function toggleManualInput() {
@@ -716,15 +764,15 @@
             }
             
             barcodeInput.value = '';
-            handleScan(barcode, 'manual');
+            handleScan(barcode, 'Manual Entry');
             barcodeInput.focus();
         }
         
         // ========================================
-        // BARCODE HANDLING - IMMEDIATE ADD
+        // BARCODE HANDLING
         // ========================================
         
-        function handleScan(code, format) {
+        function handleScan(code, scanMethod) {
             const now = Date.now();
             const cleanCode = cleanBarcode(code);
             
@@ -733,7 +781,7 @@
                 return;
             }
             
-            // Prevent duplicate scans of the same code within cooldown period
+            // Prevent duplicate scans
             if (cleanCode === lastScannedCode && (now - lastScannedTime) < SCAN_COOLDOWN) {
                 console.log('Duplicate scan ignored:', cleanCode);
                 return;
@@ -742,12 +790,14 @@
             lastScannedCode = cleanCode;
             lastScannedTime = now;
             
+            console.log(`✅ Processing ${scanMethod}: ${cleanCode}`);
+            
             // Vibrate if available
             if (navigator.vibrate) {
                 navigator.vibrate(200);
             }
             
-            // Add or update part immediately
+            // Add or update part
             const existingPart = parts.find(part => part.barcode === cleanCode);
             
             if (existingPart) {
@@ -758,7 +808,7 @@
                     id: partIdCounter++,
                     barcode: cleanCode,
                     quantity: 1,
-                    format: format
+                    scanMethod: scanMethod
                 });
                 showStatus(`📦 Added: ${cleanCode}`, 'success');
             }
@@ -829,7 +879,6 @@
         function updatePartsList() {
             const partsList = document.getElementById('partsList');
             
-            // Clear existing content
             while (partsList.firstChild) {
                 partsList.removeChild(partsList.firstChild);
             }
@@ -842,7 +891,6 @@
                 return;
             }
             
-            // Create parts using DOM methods
             parts.forEach(part => {
                 const partElement = createPartElement(part);
                 partsList.appendChild(partElement);
@@ -993,17 +1041,11 @@
         // INITIALIZATION
         // ========================================
         
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('Simple barcode scanner initializing...');
+        document.addEventListener('DOMContentLoaded', async function() {
+            console.log('🎯 Accurate Parts Scanner initializing...');
             
-            // Check for camera support
-            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                console.log('Camera supported');
-                showStatus('📱 Scanner ready - supports Code 128, Code 39, and QR codes', 'success');
-            } else {
-                console.log('Camera not supported');
-                showStatus('⚠️ Camera not available - manual entry only', 'error');
-            }
+            // Initialize the hybrid scanning system
+            await initializeScanners();
             
             // Initial setup
             updatePartsList();
@@ -1011,16 +1053,17 @@
             checkCompleteButton();
             
             console.log('Scanner initialization complete');
+            showStatus('🎯 Accurate scanner ready!', 'success');
         });
         
-        // Handle page unload to cleanup scanner
+        // Cleanup on page unload
         window.addEventListener('beforeunload', function() {
             if (scannerActive) {
                 stopScanner();
             }
         });
         
-        console.log('Simple barcode scanner loaded successfully');
+        console.log('🎯 Accurate barcode scanner loaded - Native + ZXing hybrid system');
     </script>
 </body>
 </html>
