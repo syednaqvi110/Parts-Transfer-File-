@@ -577,13 +577,20 @@
                             if (now - lastScannedTime > 2000) { // 2-second cooldown
                                 const barcode = barcodes[0];
                                 const rawValue = barcode.rawValue;
+                                const format = barcode.format;
                                 
-                                // Filter out obviously bad scans
-                                if (rawValue && rawValue.length >= 3 && rawValue.length <= 50) {
-                                    console.log(`Native scan detected - ${barcode.format}: ${rawValue}`);
-                                    handleScan(rawValue, barcode.format);
+                                // More lenient filtering for barcodes
+                                if (rawValue && rawValue.length >= 2) {
+                                    console.log(`Native scan detected - ${format}: "${rawValue}"`);
+                                    console.log('Raw barcode data:', {
+                                        value: rawValue,
+                                        length: rawValue.length,
+                                        format: format,
+                                        charCodes: rawValue.split('').map(c => c.charCodeAt(0))
+                                    });
+                                    handleScan(rawValue, format);
                                 } else {
-                                    console.log('Filtered out bad scan:', rawValue);
+                                    console.log('Filtered out invalid scan:', rawValue);
                                 }
                             }
                         }
@@ -639,10 +646,10 @@
                 return;
             }
             
-            // Clean and normalize the barcode (case-insensitive)
-            barcode = barcode.replace(/[^a-zA-Z0-9\-_]/g, '').toUpperCase();
+            // For manual entry, keep more characters intact
+            barcode = barcode.replace(/[\s\r\n\t]/g, '').toUpperCase();
             
-            if (barcode.length < 3) {
+            if (barcode.length < 2) {
                 showStatus('⚠️ Barcode too short', 'error');
                 return;
             }
@@ -656,25 +663,38 @@
             console.log(`Handling scan - ${scanType}: ${code}`);
             lastScannedTime = Date.now();
             
-            // Clean and validate the barcode
-            let cleanCode = code.trim();
+            // Clean the barcode more carefully
+            let cleanCode = String(code).trim();
             
-            // Remove any non-alphanumeric characters except hyphens and underscores
-            cleanCode = cleanCode.replace(/[^a-zA-Z0-9\-_]/g, '');
-            
-            // Skip if the code is too short or looks like noise
-            if (cleanCode.length < 3) {
-                console.log('Barcode too short, ignoring:', cleanCode);
-                return;
+            // For barcodes, be more lenient with what we accept
+            if (scanType.toLowerCase().includes('barcode') || scanType.toLowerCase().includes('code_')) {
+                // For traditional barcodes, only remove spaces and control characters
+                cleanCode = cleanCode.replace(/[\s\r\n\t]/g, '');
+                
+                // Skip if the code is too short
+                if (cleanCode.length < 3) {
+                    console.log('Barcode too short, ignoring:', cleanCode);
+                    showStatus('⚠️ Barcode too short, try again', 'error');
+                    return;
+                }
+                
+                // For very long numeric codes (likely scanning errors), truncate or validate
+                if (/^\d+$/.test(cleanCode) && cleanCode.length > 30) {
+                    console.log('Very long numeric barcode detected, might be scanning error:', cleanCode);
+                    showStatus('⚠️ Barcode seems too long, please verify', 'error');
+                    return;
+                }
+            } else {
+                // For QR codes and manual entry, remove non-alphanumeric except hyphens/underscores
+                cleanCode = cleanCode.replace(/[^a-zA-Z0-9\-_]/g, '');
+                
+                if (cleanCode.length < 2) {
+                    console.log('Code too short after cleaning, ignoring:', cleanCode);
+                    return;
+                }
             }
             
-            // Skip if it's all numbers and longer than 20 digits (likely noise)
-            if (/^\d+$/.test(cleanCode) && cleanCode.length > 20) {
-                console.log('Barcode too long/noisy, ignoring:', cleanCode);
-                return;
-            }
-            
-            // Convert to uppercase for consistency (case-insensitive)
+            // Convert to uppercase for consistency
             cleanCode = cleanCode.toUpperCase();
             
             // Vibrate if available
