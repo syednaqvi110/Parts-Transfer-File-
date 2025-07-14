@@ -80,7 +80,7 @@
             color: #dc2626;
         }
         
-        input[type="text"] {
+        input[type="text"], input[type="number"] {
             width: 100%;
             padding: 15px;
             border: 2px solid #e5e7eb;
@@ -89,7 +89,7 @@
             transition: border-color 0.3s;
         }
         
-        input[type="text"]:focus {
+        input[type="text"]:focus, input[type="number"]:focus {
             outline: none;
             border-color: #2563eb;
         }
@@ -104,6 +104,8 @@
             cursor: pointer;
             margin-bottom: 12px;
             transition: all 0.3s;
+            display: block;
+            text-align: center;
         }
         
         .btn-camera {
@@ -462,7 +464,7 @@
                     </div>
                 </div>
                 
-                <button class="btn btn-camera" id="cameraBtn">
+                <button class="btn btn-camera" data-action="toggleCamera">
                     📱 Start Scanner
                 </button>
                 
@@ -475,14 +477,14 @@
                     <div class="scan-instructions">Enhanced scanner - multiple detection required</div>
                 </div>
                 
-                <button class="btn btn-manual" id="manualBtn">
+                <button class="btn btn-manual" data-action="toggleManualInput">
                     ⌨️ Manual Entry
                 </button>
                 
                 <div class="manual-input" id="manualInput">
                     <div class="input-group">
                         <input type="text" id="manualBarcode" placeholder="Type barcode or use handheld scanner">
-                        <button class="btn-add" id="addBtn">Add</button>
+                        <button class="btn-add" data-action="addManualPart">Add</button>
                     </div>
                 </div>
                 
@@ -504,411 +506,378 @@
             </div>
             
             <!-- COMPLETE SECTION -->
-            <button class="btn btn-complete" id="completeBtn" disabled>
+            <button class="btn btn-complete" data-action="completeTransfer" disabled>
                 ✅ Complete Transfer
             </button>
         </div>
     </div>
 
     <script>
-        // Google Apps Script URL
-        const GOOGLE_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyCVe8VytbR-UqcXEcshlfbbVf6cG3Y61PfP3hnpZPY1QvIDxIUALpB2_StHCf4MC3VZA/exec';
+        'use strict'; // Enable strict mode to catch common mistakes
         
-        let cameraActive = false;
-        let stream = null;
-        let parts = [];
-        let partIdCounter = 1;
-        let lastScannedTime = 0;
-        let barcodeDetector = null;
-        let scanningInterval = null;
-        
-        // Enhanced validation system
-        let validationBuffer = [];
-        let lastValidationTime = 0;
-        const VALIDATION_TIMEOUT = 3000; // 3 seconds to complete validation
-        const REQUIRED_MATCHES = 3;
-        const SCAN_COOLDOWN = 1000; // 1 second between different scans
-        
-        function showStatus(message, type = 'success') {
-            const statusDiv = document.getElementById('status');
-            statusDiv.textContent = message;
-            statusDiv.className = `status ${type}`;
-            console.log(`Status: ${message}`);
+        // IIFE to avoid global scope pollution
+        (function() {
+            // Google Apps Script URL
+            const GOOGLE_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyCVe8VytbR-UqcXEcshlfbbVf6cG3Y61PfP3hnpZPY1QvIDxIUALpB2_StHCf4MC3VZA/exec';
             
-            setTimeout(() => {
-                statusDiv.textContent = '';
-                statusDiv.className = '';
-            }, 4000);
-        }
-        
-        function updateValidationInfo(current, required) {
-            const validationInfo = document.getElementById('validationInfo');
-            if (document.getElementById('strictValidation').checked) {
-                validationInfo.style.display = 'block';
-                validationInfo.textContent = `Validation: ${current}/${required} matches`;
-            } else {
-                validationInfo.style.display = 'none';
-            }
-        }
-        
-        function isValidBarcodeFormat(code) {
-            // Enhanced barcode validation
-            if (!code || typeof code !== 'string') return false;
-            
-            // Remove any whitespace
-            code = code.trim();
-            
-            // Too short or too long
-            if (code.length < 3 || code.length > 50) return false;
-            
-            // Check for common invalid patterns
-            const invalidPatterns = [
-                /^0+$/, // All zeros
-                /^1+$/, // All ones
-                /^\d{13,}$/, // Very long numeric (likely EAN misread)
-                /[^\w\-_.]/i, // Invalid characters (only alphanumeric, hyphens, underscores, periods)
-                /^(.)\1{10,}$/ // Same character repeated 10+ times
-            ];
-            
-            for (const pattern of invalidPatterns) {
-                if (pattern.test(code)) {
-                    console.log(`Invalid pattern detected: ${pattern} for code: ${code}`);
-                    return false;
-                }
-            }
-            
-            // Check for reasonable character distribution
-            const uniqueChars = new Set(code).size;
-            if (code.length > 10 && uniqueChars < 3) {
-                console.log(`Poor character diversity for code: ${code}`);
-                return false;
-            }
-            
-            return true;
-        }
-        
-        function validateScanConsistency(newCode) {
-            const now = Date.now();
-            const strictMode = document.getElementById('strictValidation').checked;
-            
-            if (!strictMode) {
-                // Simple validation - just check format
-                return isValidBarcodeFormat(newCode) ? { valid: true, code: newCode } : { valid: false };
-            }
-            
-            // Enhanced validation with consecutive matching
-            
-            // Clear old validation attempts
-            if (now - lastValidationTime > VALIDATION_TIMEOUT) {
-                validationBuffer = [];
-            }
-            
-            // Add current scan to buffer
-            validationBuffer.push({
-                code: newCode,
-                timestamp: now
-            });
-            lastValidationTime = now;
-            
-            // Keep only recent scans
-            validationBuffer = validationBuffer.filter(scan => 
-                now - scan.timestamp < VALIDATION_TIMEOUT
-            );
-            
-            // Count consecutive matches of the same code
-            const codeMatches = validationBuffer.filter(scan => scan.code === newCode).length;
-            
-            updateValidationInfo(codeMatches, REQUIRED_MATCHES);
-            
-            if (codeMatches >= REQUIRED_MATCHES) {
-                // Clear buffer after successful validation
-                validationBuffer = [];
-                updateValidationInfo(0, REQUIRED_MATCHES);
-                return { valid: true, code: newCode };
-            }
-            
-            return { 
-                valid: false, 
-                partial: true, 
-                matches: codeMatches, 
-                required: REQUIRED_MATCHES,
-                code: newCode
+            // Application state in a single object to avoid scope issues
+            const AppState = {
+                cameraActive: false,
+                stream: null,
+                parts: [],
+                partIdCounter: 1,
+                lastScannedTime: 0,
+                barcodeDetector: null,
+                scanningInterval: null,
+                validationBuffer: [],
+                lastValidationTime: 0,
+                elements: {} // Cache DOM elements
             };
-        }
-        
-        // Initialize native barcode detector if available
-        async function initBarcodeDetector() {
-            try {
-                if ('BarcodeDetector' in window) {
-                    const supportedFormats = await BarcodeDetector.getSupportedFormats();
-                    console.log('Supported barcode formats:', supportedFormats);
+            
+            // Constants
+            const CONSTANTS = {
+                VALIDATION_TIMEOUT: 3000,
+                REQUIRED_MATCHES: 3,
+                SCAN_COOLDOWN: 1000,
+                SCAN_INTERVAL: 150
+            };
+            
+            // Cache DOM elements on initialization
+            function cacheElements() {
+                const elements = [
+                    'status', 'validationInfo', 'videoContainer', 'camera-video', 
+                    'manualInput', 'manualBarcode', 'partsList', 'summary', 
+                    'summaryText', 'fromLocation', 'toLocation', 'strictValidation'
+                ];
+                
+                elements.forEach(id => {
+                    AppState.elements[id] = document.getElementById(id);
+                });
+            }
+            
+            // Enhanced utility functions
+            const Utils = {
+                showStatus: function(message, type = 'success') {
+                    const statusDiv = AppState.elements.status;
+                    if (!statusDiv) return;
                     
-                    // Limit to common industrial barcode formats to reduce false positives
-                    const industrialFormats = supportedFormats.filter(format => 
-                        ['code_128', 'code_39', 'qr_code', 'data_matrix', 'ean_13', 'ean_8', 'upc_a', 'upc_e'].includes(format)
-                    );
+                    statusDiv.textContent = message;
+                    statusDiv.className = `status ${type}`;
+                    console.log(`Status: ${message}`);
                     
-                    barcodeDetector = new BarcodeDetector({
-                        formats: industrialFormats.length > 0 ? industrialFormats : supportedFormats
-                    });
+                    setTimeout(() => {
+                        statusDiv.textContent = '';
+                        statusDiv.className = '';
+                    }, 4000);
+                },
+                
+                updateValidationInfo: function(current, required) {
+                    const validationInfo = AppState.elements.validationInfo;
+                    if (!validationInfo) return;
                     
-                    console.log('Native BarcodeDetector initialized with formats:', industrialFormats);
+                    if (AppState.elements.strictValidation && AppState.elements.strictValidation.checked) {
+                        validationInfo.style.display = 'block';
+                        validationInfo.textContent = `Validation: ${current}/${required} matches`;
+                    } else {
+                        validationInfo.style.display = 'none';
+                    }
+                },
+                
+                isValidBarcodeFormat: function(code) {
+                    if (!code || typeof code !== 'string') return false;
+                    
+                    code = code.trim();
+                    if (code.length < 3 || code.length > 50) return false;
+                    
+                    const invalidPatterns = [
+                        /^0+$/,
+                        /^1+$/,
+                        /^\d{13,}$/,
+                        /[^\w\-_.]/i,
+                        /^(.)\1{10,}$/
+                    ];
+                    
+                    for (const pattern of invalidPatterns) {
+                        if (pattern.test(code)) {
+                            console.log(`Invalid pattern detected: ${pattern} for code: ${code}`);
+                            return false;
+                        }
+                    }
+                    
+                    const uniqueChars = new Set(code).size;
+                    if (code.length > 10 && uniqueChars < 3) {
+                        console.log(`Poor character diversity for code: ${code}`);
+                        return false;
+                    }
+                    
                     return true;
                 }
-            } catch (error) {
-                console.log('BarcodeDetector not available:', error);
-            }
-            return false;
-        }
-        
-        function toggleCamera() {
-            console.log('Camera button clicked');
-            const videoContainer = document.getElementById('videoContainer');
-            const video = document.getElementById('camera-video');
-            const cameraBtn = document.getElementById('cameraBtn');
-            
-            if (!cameraActive) {
-                console.log('Starting camera...');
-                showStatus('🔄 Starting camera...', 'info');
-                
-                navigator.mediaDevices.getUserMedia({
-                    video: { 
-                        facingMode: 'environment',
-                        width: { ideal: 1920, min: 640 },
-                        height: { ideal: 1080, min: 480 }
-                    }
-                })
-                .then(async (mediaStream) => {
-                    console.log('Camera started successfully');
-                    stream = mediaStream;
-                    video.srcObject = stream;
-                    videoContainer.style.display = 'block';
-                    cameraActive = true;
-                    cameraBtn.textContent = '🛑 Stop Scanner';
-                    cameraBtn.classList.add('active');
-                    
-                    // Initialize barcode detection
-                    const hasNativeDetector = await initBarcodeDetector();
-                    
-                    // Start scanning
-                    video.addEventListener('loadedmetadata', () => {
-                        if (hasNativeDetector) {
-                            startNativeScanning();
-                            showStatus('📱 Enhanced scanner active! Multiple detections required for validation', 'info');
-                        } else {
-                            startFallbackScanning();
-                            showStatus('📱 Camera active! Use for manual identification', 'info');
-                        }
-                    });
-                })
-                .catch(err => {
-                    console.error('Camera error:', err);
-                    if (err.name === 'NotAllowedError') {
-                        showStatus('❌ Camera permission denied', 'error');
-                    } else {
-                        showStatus('❌ Camera not available', 'error');
-                    }
-                });
-            } else {
-                console.log('Stopping camera...');
-                stopScanning();
-                if (stream) {
-                    stream.getTracks().forEach(track => track.stop());
-                }
-                videoContainer.style.display = 'none';
-                cameraActive = false;
-                cameraBtn.textContent = '📱 Start Scanner';
-                cameraBtn.classList.remove('active');
-                validationBuffer = [];
-                updateValidationInfo(0, REQUIRED_MATCHES);
-                showStatus('Camera stopped', 'info');
-            }
-        }
-        
-        function startNativeScanning() {
-            const video = document.getElementById('camera-video');
-            console.log('Starting enhanced native barcode scanning...');
-            
-            scanningInterval = setInterval(async () => {
-                if (!cameraActive || !video.readyState || video.readyState !== video.HAVE_ENOUGH_DATA) {
-                    return;
-                }
-                
-                try {
-                    if (barcodeDetector) {
-                        const barcodes = await barcodeDetector.detect(video);
-                        
-                        if (barcodes.length > 0) {
-                            const now = Date.now();
-                            if (now - lastScannedTime > 200) { // Reduced cooldown for validation
-                                const barcode = barcodes[0];
-                                const rawValue = barcode.rawValue;
-                                const format = barcode.format;
-                                
-                                // Basic format validation
-                                if (rawValue && isValidBarcodeFormat(rawValue)) {
-                                    console.log(`Native scan detected - ${format}: "${rawValue}"`);
-                                    
-                                    // Enhanced validation
-                                    const validation = validateScanConsistency(rawValue);
-                                    
-                                    if (validation.valid) {
-                                        handleScan(rawValue, format);
-                                    } else if (validation.partial) {
-                                        console.log(`Validation progress: ${validation.matches}/${validation.required} for ${rawValue}`);
-                                        showStatus(`🔍 Validating: ${validation.matches}/${validation.required} - keep scanning same code`, 'warning');
-                                    }
-                                } else {
-                                    console.log('Invalid barcode format filtered out:', rawValue);
-                                }
-                                
-                                lastScannedTime = now;
-                            }
-                        }
-                    }
-                } catch (error) {
-                    console.error('Native scanning error:', error);
-                }
-            }, 150); // Slightly faster scanning for better validation UX
-        }
-        
-        function startFallbackScanning() {
-            const video = document.getElementById('camera-video');
-            console.log('Using fallback scanning mode');
-            
-            // Allow manual identification - user can see barcode and type it
-            video.onclick = function() {
-                showStatus('📱 Camera active - manually type the barcode you see', 'info');
-                document.getElementById('manualInput').classList.add('active');
-                document.getElementById('manualBarcode').focus();
             };
-        }
-        
-        function stopScanning() {
-            if (scanningInterval) {
-                clearInterval(scanningInterval);
-                scanningInterval = null;
-            }
             
-            const video = document.getElementById('camera-video');
-            if (video) {
-                video.onclick = null;
-            }
-        }
-        
-        function toggleManualInput() {
-            console.log('Manual button clicked');
-            const manualInput = document.getElementById('manualInput');
-            if (manualInput.classList.contains('active')) {
-                manualInput.classList.remove('active');
-            } else {
-                manualInput.classList.add('active');
-                document.getElementById('manualBarcode').focus();
-            }
-        }
-        
-        function addManualPart() {
-            console.log('Add button clicked');
-            const barcodeInput = document.getElementById('manualBarcode');
-            let barcode = barcodeInput.value.trim();
+            // Validation system
+            const ValidationSystem = {
+                validateScanConsistency: function(newCode) {
+                    const now = Date.now();
+                    const strictMode = AppState.elements.strictValidation && AppState.elements.strictValidation.checked;
+                    
+                    if (!strictMode) {
+                        return Utils.isValidBarcodeFormat(newCode) ? 
+                            { valid: true, code: newCode } : 
+                            { valid: false };
+                    }
+                    
+                    if (now - AppState.lastValidationTime > CONSTANTS.VALIDATION_TIMEOUT) {
+                        AppState.validationBuffer = [];
+                    }
+                    
+                    AppState.validationBuffer.push({
+                        code: newCode,
+                        timestamp: now
+                    });
+                    AppState.lastValidationTime = now;
+                    
+                    AppState.validationBuffer = AppState.validationBuffer.filter(scan => 
+                        now - scan.timestamp < CONSTANTS.VALIDATION_TIMEOUT
+                    );
+                    
+                    const codeMatches = AppState.validationBuffer.filter(scan => scan.code === newCode).length;
+                    
+                    Utils.updateValidationInfo(codeMatches, CONSTANTS.REQUIRED_MATCHES);
+                    
+                    if (codeMatches >= CONSTANTS.REQUIRED_MATCHES) {
+                        AppState.validationBuffer = [];
+                        Utils.updateValidationInfo(0, CONSTANTS.REQUIRED_MATCHES);
+                        return { valid: true, code: newCode };
+                    }
+                    
+                    return { 
+                        valid: false, 
+                        partial: true, 
+                        matches: codeMatches, 
+                        required: CONSTANTS.REQUIRED_MATCHES,
+                        code: newCode
+                    };
+                }
+            };
             
-            if (!barcode) {
-                showStatus('⚠️ Please enter a barcode', 'error');
-                return;
-            }
+            // Camera and scanning functionality
+            const CameraSystem = {
+                initBarcodeDetector: async function() {
+                    try {
+                        if ('BarcodeDetector' in window) {
+                            const supportedFormats = await BarcodeDetector.getSupportedFormats();
+                            console.log('Supported barcode formats:', supportedFormats);
+                            
+                            const industrialFormats = supportedFormats.filter(format => 
+                                ['code_128', 'code_39', 'qr_code', 'data_matrix', 'ean_13', 'ean_8', 'upc_a', 'upc_e'].includes(format)
+                            );
+                            
+                            AppState.barcodeDetector = new BarcodeDetector({
+                                formats: industrialFormats.length > 0 ? industrialFormats : supportedFormats
+                            });
+                            
+                            console.log('Native BarcodeDetector initialized with formats:', industrialFormats);
+                            return true;
+                        }
+                    } catch (error) {
+                        console.log('BarcodeDetector not available:', error);
+                    }
+                    return false;
+                },
+                
+                startNativeScanning: function() {
+                    const video = AppState.elements['camera-video'];
+                    if (!video) return;
+                    
+                    console.log('Starting enhanced native barcode scanning...');
+                    
+                    AppState.scanningInterval = setInterval(async () => {
+                        if (!AppState.cameraActive || !video.readyState || video.readyState !== video.HAVE_ENOUGH_DATA) {
+                            return;
+                        }
+                        
+                        try {
+                            if (AppState.barcodeDetector) {
+                                const barcodes = await AppState.barcodeDetector.detect(video);
+                                
+                                if (barcodes.length > 0) {
+                                    const now = Date.now();
+                                    if (now - AppState.lastScannedTime > 200) {
+                                        const barcode = barcodes[0];
+                                        const rawValue = barcode.rawValue;
+                                        const format = barcode.format;
+                                        
+                                        if (rawValue && Utils.isValidBarcodeFormat(rawValue)) {
+                                            console.log(`Native scan detected - ${format}: "${rawValue}"`);
+                                            
+                                            const validation = ValidationSystem.validateScanConsistency(rawValue);
+                                            
+                                            if (validation.valid) {
+                                                PartSystem.handleScan(rawValue, format);
+                                            } else if (validation.partial) {
+                                                console.log(`Validation progress: ${validation.matches}/${validation.required} for ${rawValue}`);
+                                                Utils.showStatus(`🔍 Validating: ${validation.matches}/${validation.required} - keep scanning same code`, 'warning');
+                                            }
+                                        } else {
+                                            console.log('Invalid barcode format filtered out:', rawValue);
+                                        }
+                                        
+                                        AppState.lastScannedTime = now;
+                                    }
+                                }
+                            }
+                        } catch (error) {
+                            console.error('Native scanning error:', error);
+                        }
+                    }, CONSTANTS.SCAN_INTERVAL);
+                },
+                
+                startFallbackScanning: function() {
+                    const video = AppState.elements['camera-video'];
+                    if (!video) return;
+                    
+                    console.log('Using fallback scanning mode');
+                    
+                    video.onclick = function() {
+                        Utils.showStatus('📱 Camera active - manually type the barcode you see', 'info');
+                        const manualInput = AppState.elements.manualInput;
+                        if (manualInput) {
+                            manualInput.classList.add('active');
+                            const manualBarcode = AppState.elements.manualBarcode;
+                            if (manualBarcode) manualBarcode.focus();
+                        }
+                    };
+                },
+                
+                stopScanning: function() {
+                    if (AppState.scanningInterval) {
+                        clearInterval(AppState.scanningInterval);
+                        AppState.scanningInterval = null;
+                    }
+                    
+                    const video = AppState.elements['camera-video'];
+                    if (video) {
+                        video.onclick = null;
+                    }
+                }
+            };
             
-            // Enhanced validation for manual entry
-            const cleanCode = barcode.replace(/[\s\r\n\t]/g, '').toUpperCase();
+            // Parts management system
+            const PartSystem = {
+                handleScan: function(code, scanType = 'Scan') {
+                    console.log(`Handling validated scan - ${scanType}: ${code}`);
+                    const now = Date.now();
+                    
+                    if (!Utils.isValidBarcodeFormat(code)) {
+                        Utils.showStatus('⚠️ Invalid barcode format detected', 'error');
+                        return;
+                    }
+                    
+                    if (now - AppState.lastScannedTime < CONSTANTS.SCAN_COOLDOWN && scanType !== 'Manual Entry') {
+                        return;
+                    }
+                    AppState.lastScannedTime = now;
+                    
+                    const cleanCode = String(code).trim().toUpperCase();
+                    
+                    if (navigator.vibrate) {
+                        navigator.vibrate([200, 100, 200]);
+                    }
+                    
+                    const existingPart = AppState.parts.find(part => part.barcode.toUpperCase() === cleanCode);
+                    
+                    if (existingPart) {
+                        existingPart.quantity += 1;
+                        Utils.showStatus(`📦 Updated: ${cleanCode} (qty: ${existingPart.quantity})`, 'success');
+                    } else {
+                        AppState.parts.push({
+                            id: AppState.partIdCounter++,
+                            barcode: cleanCode,
+                            quantity: 1,
+                            scanMethod: scanType,
+                            validated: true
+                        });
+                        Utils.showStatus(`📦 Added: ${cleanCode}`, 'success');
+                    }
+                    
+                    UISystem.updatePartsList();
+                    UISystem.updateSummary();
+                    UISystem.checkCompleteButton();
+                },
+                
+                increaseQuantity: function(partId) {
+                    const part = AppState.parts.find(p => p.id === partId);
+                    if (part && part.quantity < 999) {
+                        part.quantity += 1;
+                        UISystem.updatePartsList();
+                        UISystem.updateSummary();
+                    }
+                },
+                
+                decreaseQuantity: function(partId) {
+                    const part = AppState.parts.find(p => p.id === partId);
+                    if (part && part.quantity > 1) {
+                        part.quantity -= 1;
+                        UISystem.updatePartsList();
+                        UISystem.updateSummary();
+                    }
+                },
+                
+                updateQuantity: function(partId, newQuantity) {
+                    const quantity = parseInt(newQuantity) || 1;
+                    const part = AppState.parts.find(p => p.id === partId);
+                    if (part) {
+                        part.quantity = Math.max(1, Math.min(999, quantity));
+                        UISystem.updatePartsList();
+                        UISystem.updateSummary();
+                    }
+                },
+                
+                removePart: function(partId) {
+                    const partIndex = AppState.parts.findIndex(p => p.id === partId);
+                    if (partIndex > -1) {
+                        const removedPart = AppState.parts.splice(partIndex, 1)[0];
+                        UISystem.updatePartsList();
+                        UISystem.updateSummary();
+                        UISystem.checkCompleteButton();
+                        Utils.showStatus(`🗑️ Removed ${removedPart.barcode}`, 'success');
+                    }
+                }
+            };
             
-            if (!isValidBarcodeFormat(cleanCode)) {
-                showStatus('⚠️ Invalid barcode format', 'error');
-                return;
-            }
-            
-            barcodeInput.value = '';
-            handleScan(cleanCode, 'Manual Entry');
-            barcodeInput.focus();
-        }
-        
-        function handleScan(code, scanType = 'Scan') {
-            console.log(`Handling validated scan - ${scanType}: ${code}`);
-            const now = Date.now();
-            
-            // Final validation before adding
-            if (!isValidBarcodeFormat(code)) {
-                showStatus('⚠️ Invalid barcode format detected', 'error');
-                return;
-            }
-            
-            // Prevent rapid duplicate additions
-            if (now - lastScannedTime < SCAN_COOLDOWN && scanType !== 'Manual Entry') {
-                return;
-            }
-            lastScannedTime = now;
-            
-            // Clean and normalize the code
-            let cleanCode = String(code).trim().toUpperCase();
-            
-            // Vibrate if available
-            if (navigator.vibrate) {
-                navigator.vibrate([200, 100, 200]);
-            }
-            
-            // Check if part already exists
-            const existingPart = parts.find(part => part.barcode.toUpperCase() === cleanCode);
-            
-            if (existingPart) {
-                existingPart.quantity += 1;
-                showStatus(`📦 Updated: ${cleanCode} (qty: ${existingPart.quantity})`, 'success');
-            } else {
-                parts.push({
-                    id: partIdCounter++,
-                    barcode: cleanCode,
-                    quantity: 1,
-                    scanMethod: scanType,
-                    validated: true
-                });
-                showStatus(`📦 Added: ${cleanCode}`, 'success');
-            }
-            
-            updatePartsList();
-            updateSummary();
-            checkCompleteButton();
-        }
-        
-        function increaseQuantity(partId) {
-            const part = parts.find(p => p.id === partId);
-            if (part && part.quantity < 999) {
-                part.quantity += 1;
-                updatePartsList();
-                updateSummary();
-            }
-        }
-        
-        function decreaseQuantity(partId) {
-            const part = parts.find(p => p.id === partId);
-            if (part && part.quantity > 1) {
-                part.quantity -= 1;
-                updatePartsList();
-                updateSummary();
-            }
-        }
-        
-        function updateQuantity(partId, newQuantity) {
-            const quantity = parseInt(newQuantity) || 1;
-            const part = parts.find(p => p.id === partId);
-            if (part) {
-                part.quantity = Math.max(1, Math.min(999, quantity));
-                updatePartsList();
-                updateSummary();
-            }
-        }
-        
-        function removePart(partId) {
-            const partIndex = parts.findIndex(p => p.id === partId);
-            if (partIndex > -1) {
-                const removedPart = parts.splice(partIndex, 1)[0];
-                updatePartsList();
-                updateSummary();
-                checkCompleteButton();
-                showStatus(`🗑️ Removed ${removedPart.bar
+            // UI Management System
+            const UISystem = {
+                // Use createDocumentFragment to avoid innerHTML issues
+                updatePartsList: function() {
+                    const partsList = AppState.elements.partsList;
+                    if (!partsList) return;
+                    
+                    // Clear existing content safely
+                    while (partsList.firstChild) {
+                        partsList.removeChild(partsList.firstChild);
+                    }
+                    
+                    if (AppState.parts.length === 0) {
+                        const emptyDiv = document.createElement('div');
+                        emptyDiv.className = 'empty-state';
+                        emptyDiv.textContent = 'No parts scanned yet';
+                        partsList.appendChild(emptyDiv);
+                        return;
+                    }
+                    
+                    // Use DocumentFragment for efficient DOM manipulation
+                    const fragment = document.createDocumentFragment();
+                    
+                    AppState.parts.forEach(part => {
+                        const partDiv = document.createElement('div');
+                        partDiv.className = 'part-item';
+                        
+                        // Create the part structure using DOM methods
+                        partDiv.innerHTML = `
+                            <div class="part-header">
+                                <div>
+                                    <div class="part-barcode">${part.barcode}</div>
+                                    <div class="part-validation">Validated via ${part.scanMethod || 'Scan'}</div>
+                                </div>
+                                <div class="part-controls">
+                                    <span class
