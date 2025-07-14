@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Parts Transfer Scanner - Enhanced</title>
+    <title>Simple Parts Scanner</title>
+    <script src="https://cdn.jsdelivr.net/npm/quagga@0.12.1/dist/quagga.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -147,40 +148,33 @@
             cursor: not-allowed;
         }
         
-        .video-container {
+        #scanner-container {
             position: relative;
             margin: 15px 0;
             border-radius: 12px;
             overflow: hidden;
             background: #1f2937;
             display: none;
-        }
-        
-        #camera-video {
             width: 100%;
             height: 300px;
+        }
+        
+        #scanner-container video {
+            width: 100%;
+            height: 100%;
             object-fit: cover;
         }
         
-        .scan-overlay {
+        /* QuaggaJS canvas overlays */
+        #scanner-container canvas {
             position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            border: 3px solid #ef4444;
-            width: 200px;
-            height: 80px;
-            border-radius: 8px;
-            background: rgba(239, 68, 68, 0.1);
-            animation: pulse 2s infinite;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
         }
         
-        @keyframes pulse {
-            0%, 100% { opacity: 0.6; }
-            50% { opacity: 1; }
-        }
-        
-        .scan-instructions {
+        .scan-info {
             position: absolute;
             bottom: 15px;
             left: 50%;
@@ -191,18 +185,6 @@
             border-radius: 15px;
             font-size: 14px;
             text-align: center;
-        }
-        
-        .validation-info {
-            position: absolute;
-            top: 15px;
-            left: 15px;
-            background: rgba(0,0,0,0.8);
-            color: white;
-            padding: 8px 12px;
-            border-radius: 10px;
-            font-size: 12px;
-            max-width: 200px;
         }
         
         .manual-input {
@@ -264,12 +246,6 @@
             font-weight: bold;
             color: #1f2937;
             font-size: 16px;
-        }
-        
-        .part-validation {
-            font-size: 12px;
-            color: #6b7280;
-            font-style: italic;
         }
         
         .part-controls {
@@ -350,12 +326,6 @@
             border: 2px solid #93c5fd;
         }
         
-        .status.warning {
-            background: #fef3c7;
-            color: #92400e;
-            border: 2px solid #fde68a;
-        }
-        
         .empty-state {
             text-align: center;
             color: #6b7280;
@@ -384,26 +354,6 @@
             font-size: 14px;
         }
         
-        .validation-settings {
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 12px;
-            margin-bottom: 15px;
-            font-size: 13px;
-        }
-        
-        .validation-toggle {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 8px;
-        }
-        
-        .validation-toggle input[type="checkbox"] {
-            width: auto;
-        }
-        
         @media (max-width: 480px) {
             .container {
                 margin: 5px;
@@ -430,8 +380,8 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🚚 Parts Transfer</h1>
-            <p>Enhanced scanner with validation & false positive prevention</p>
+            <h1>🚚 Simple Parts Scanner</h1>
+            <p>Scans Code 128, Code 39, and QR codes instantly</p>
         </div>
         
         <div class="content">
@@ -452,29 +402,14 @@
             
             <!-- SCANNING SECTION -->
             <div class="section">
-                <h2 class="section-title">📦 Scan Parts</h2>
-                
-                <div class="validation-settings">
-                    <div class="validation-toggle">
-                        <input type="checkbox" id="strictValidation" checked>
-                        <label for="strictValidation">Enhanced validation (prevents false positives)</label>
-                    </div>
-                    <div style="font-size: 11px; color: #6b7280;">
-                        Requires 3 consecutive identical scans for confirmation
-                    </div>
-                </div>
+                <h2 class="section-title">📦 Barcode Scanner</h2>
                 
                 <button class="btn btn-camera" id="cameraBtn">
                     📱 Start Scanner
                 </button>
                 
-                <div class="video-container" id="videoContainer">
-                    <video id="camera-video" autoplay playsinline muted></video>
-                    <div class="scan-overlay"></div>
-                    <div class="validation-info" id="validationInfo" style="display: none;">
-                        Validation: 0/3 matches
-                    </div>
-                    <div class="scan-instructions">Enhanced scanner - multiple detection required</div>
+                <div id="scanner-container">
+                    <div class="scan-info">Point camera at Code 128, Code 39, or QR code</div>
                 </div>
                 
                 <button class="btn btn-manual" id="manualBtn">
@@ -483,7 +418,7 @@
                 
                 <div class="manual-input" id="manualInput">
                     <div class="input-group">
-                        <input type="text" id="manualBarcode" placeholder="Type barcode or use handheld scanner">
+                        <input type="text" id="manualBarcode" placeholder="Type barcode manually">
                         <button class="btn-add" id="addBtn">Add</button>
                     </div>
                 </div>
@@ -515,125 +450,93 @@
     <script>
         'use strict';
         
-        // COMPREHENSIVE SOLUTION FOR BUTTON BREAKAGE ISSUES
-        
         // Google Apps Script URL
         const GOOGLE_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyCVe8VytbR-UqcXEcshlfbbVf6cG3Y61PfP3hnpZPY1QvIDxIUALpB2_StHCf4MC3VZA/exec';
         
-        // Application state
-        let cameraActive = false;
-        let stream = null;
+        // Simple application state
+        let scannerActive = false;
         let parts = [];
         let partIdCounter = 1;
+        let lastScannedCode = '';
         let lastScannedTime = 0;
-        let barcodeDetector = null;
-        let scanningInterval = null;
         
-        // Enhanced validation system
-        let validationBuffer = [];
-        let lastValidationTime = 0;
-        const VALIDATION_TIMEOUT = 3000;
-        const REQUIRED_MATCHES = 3;
+        // Prevent duplicate scans within 1 second
         const SCAN_COOLDOWN = 1000;
         
         // ========================================
-        // CRITICAL FIX: EVENT DELEGATION SYSTEM
-        // This prevents all button breakage issues
+        // SIMPLE EVENT DELEGATION SYSTEM
         // ========================================
         
-        // Single event listener using EVENT DELEGATION on document
-        // This ensures ALL buttons work, even dynamically created ones
         document.addEventListener('click', function(event) {
             const target = event.target;
-            const id = target.id;
-            const className = target.className;
             
-            console.log('Click detected on:', target.tagName, 'ID:', id, 'Class:', className);
-            
-            // Camera button - multiple ways to detect it
-            if (id === 'cameraBtn' || target.classList.contains('btn-camera')) {
-                console.log('Camera button clicked via delegation');
-                event.preventDefault();
-                event.stopPropagation();
-                toggleCamera();
+            // Camera button
+            if (target.id === 'cameraBtn') {
+                console.log('Camera button clicked');
+                toggleScanner();
                 return;
             }
             
-            // Manual input button  
-            if (id === 'manualBtn' || target.classList.contains('btn-manual')) {
-                console.log('Manual button clicked via delegation');
-                event.preventDefault();
-                event.stopPropagation();
+            // Manual input button
+            if (target.id === 'manualBtn') {
+                console.log('Manual button clicked');
                 toggleManualInput();
                 return;
             }
             
             // Add manual part button
-            if (id === 'addBtn' || target.classList.contains('btn-add')) {
-                console.log('Add button clicked via delegation');
-                event.preventDefault();
-                event.stopPropagation();
+            if (target.id === 'addBtn') {
+                console.log('Add button clicked');
                 addManualPart();
                 return;
             }
             
             // Complete transfer button
-            if (id === 'completeBtn' || target.classList.contains('btn-complete')) {
-                console.log('Complete button clicked via delegation');
-                event.preventDefault();
-                event.stopPropagation();
+            if (target.id === 'completeBtn') {
+                console.log('Complete button clicked');
                 completeTransfer();
                 return;
             }
             
-            // Quantity decrease buttons (dynamically created)
+            // Quantity controls for dynamic parts
             if (target.classList.contains('btn-qty-decrease')) {
-                console.log('Decrease button clicked via delegation');
                 const partId = parseInt(target.getAttribute('data-part-id'));
                 decreaseQuantity(partId);
                 return;
             }
             
-            // Quantity increase buttons (dynamically created)
             if (target.classList.contains('btn-qty-increase')) {
-                console.log('Increase button clicked via delegation');
                 const partId = parseInt(target.getAttribute('data-part-id'));
                 increaseQuantity(partId);
                 return;
             }
             
-            // Remove part buttons (dynamically created)
             if (target.classList.contains('btn-remove')) {
-                console.log('Remove button clicked via delegation');
                 const partId = parseInt(target.getAttribute('data-part-id'));
                 removePart(partId);
                 return;
             }
         });
         
-        // Handle input changes using event delegation
+        // Handle input changes
         document.addEventListener('change', function(event) {
             const target = event.target;
             
-            // Quantity input changes (dynamically created)
             if (target.classList.contains('qty-input')) {
-                console.log('Quantity input changed via delegation');
                 const partId = parseInt(target.getAttribute('data-part-id'));
                 updateQuantity(partId, target.value);
                 return;
             }
             
-            // Location inputs
             if (target.id === 'fromLocation' || target.id === 'toLocation') {
                 checkCompleteButton();
                 return;
             }
         });
         
-        // Handle keyboard events
+        // Handle Enter key for manual input
         document.addEventListener('keypress', function(event) {
             if (event.target.id === 'manualBarcode' && event.key === 'Enter') {
-                console.log('Manual barcode entered via delegation');
                 addManualPart();
             }
         });
@@ -651,249 +554,149 @@
             setTimeout(() => {
                 statusDiv.textContent = '';
                 statusDiv.className = '';
-            }, 4000);
+            }, 3000);
         }
         
-        function updateValidationInfo(current, required) {
-            const validationInfo = document.getElementById('validationInfo');
-            if (document.getElementById('strictValidation').checked) {
-                validationInfo.style.display = 'block';
-                validationInfo.textContent = `Validation: ${current}/${required} matches`;
-            } else {
-                validationInfo.style.display = 'none';
-            }
-        }
-        
-        function isValidBarcodeFormat(code) {
-            if (!code || typeof code !== 'string') return false;
+        function cleanBarcode(code) {
+            if (!code || typeof code !== 'string') return '';
             
-            code = code.trim();
-            if (code.length < 3 || code.length > 50) return false;
+            // Remove whitespace and convert to uppercase
+            let cleaned = code.trim().toUpperCase();
             
-            const invalidPatterns = [
-                /^0+$/,
-                /^1+$/,
-                /^\d{13,}$/,
-                /[^\w\-_.]/i,
-                /^(.)\1{10,}$/
-            ];
+            // Basic length validation
+            if (cleaned.length < 2 || cleaned.length > 50) return '';
             
-            for (const pattern of invalidPatterns) {
-                if (pattern.test(code)) {
-                    console.log(`Invalid pattern detected: ${pattern} for code: ${code}`);
-                    return false;
-                }
-            }
-            
-            const uniqueChars = new Set(code).size;
-            if (code.length > 10 && uniqueChars < 3) {
-                console.log(`Poor character diversity for code: ${code}`);
-                return false;
-            }
-            
-            return true;
-        }
-        
-        function validateScanConsistency(newCode) {
-            const now = Date.now();
-            const strictMode = document.getElementById('strictValidation').checked;
-            
-            if (!strictMode) {
-                return isValidBarcodeFormat(newCode) ? { valid: true, code: newCode } : { valid: false };
-            }
-            
-            if (now - lastValidationTime > VALIDATION_TIMEOUT) {
-                validationBuffer = [];
-            }
-            
-            validationBuffer.push({
-                code: newCode,
-                timestamp: now
-            });
-            lastValidationTime = now;
-            
-            validationBuffer = validationBuffer.filter(scan => 
-                now - scan.timestamp < VALIDATION_TIMEOUT
-            );
-            
-            const codeMatches = validationBuffer.filter(scan => scan.code === newCode).length;
-            
-            updateValidationInfo(codeMatches, REQUIRED_MATCHES);
-            
-            if (codeMatches >= REQUIRED_MATCHES) {
-                validationBuffer = [];
-                updateValidationInfo(0, REQUIRED_MATCHES);
-                return { valid: true, code: newCode };
-            }
-            
-            return { 
-                valid: false, 
-                partial: true, 
-                matches: codeMatches, 
-                required: REQUIRED_MATCHES,
-                code: newCode
-            };
+            return cleaned;
         }
         
         // ========================================
-        // CAMERA AND SCANNING FUNCTIONS
+        // SCANNER FUNCTIONS - SIMPLE & EFFECTIVE
         // ========================================
         
-        async function initBarcodeDetector() {
-            try {
-                if ('BarcodeDetector' in window) {
-                    const supportedFormats = await BarcodeDetector.getSupportedFormats();
-                    console.log('Supported barcode formats:', supportedFormats);
-                    
-                    const industrialFormats = supportedFormats.filter(format => 
-                        ['code_128', 'code_39', 'qr_code', 'data_matrix', 'ean_13', 'ean_8', 'upc_a', 'upc_e'].includes(format)
-                    );
-                    
-                    barcodeDetector = new BarcodeDetector({
-                        formats: industrialFormats.length > 0 ? industrialFormats : supportedFormats
-                    });
-                    
-                    console.log('Native BarcodeDetector initialized with formats:', industrialFormats);
-                    return true;
-                }
-            } catch (error) {
-                console.log('BarcodeDetector not available:', error);
-            }
-            return false;
-        }
-        
-        function toggleCamera() {
-            console.log('Camera toggle function called');
-            const videoContainer = document.getElementById('videoContainer');
-            const video = document.getElementById('camera-video');
+        function toggleScanner() {
             const cameraBtn = document.getElementById('cameraBtn');
+            const scannerContainer = document.getElementById('scanner-container');
             
-            if (!cameraActive) {
-                console.log('Starting camera...');
-                showStatus('🔄 Starting camera...', 'info');
-                
-                navigator.mediaDevices.getUserMedia({
-                    video: { 
-                        facingMode: 'environment',
-                        width: { ideal: 1920, min: 640 },
-                        height: { ideal: 1080, min: 480 }
-                    }
-                })
-                .then(async (mediaStream) => {
-                    console.log('Camera started successfully');
-                    stream = mediaStream;
-                    video.srcObject = stream;
-                    videoContainer.style.display = 'block';
-                    cameraActive = true;
-                    cameraBtn.textContent = '🛑 Stop Scanner';
-                    cameraBtn.classList.add('active');
-                    
-                    const hasNativeDetector = await initBarcodeDetector();
-                    
-                    video.addEventListener('loadedmetadata', () => {
-                        if (hasNativeDetector) {
-                            startNativeScanning();
-                            showStatus('📱 Enhanced scanner active! Multiple detections required for validation', 'info');
-                        } else {
-                            startFallbackScanning();
-                            showStatus('📱 Camera active! Use for manual identification', 'info');
-                        }
-                    });
-                })
-                .catch(err => {
-                    console.error('Camera error:', err);
-                    if (err.name === 'NotAllowedError') {
-                        showStatus('❌ Camera permission denied', 'error');
-                    } else {
-                        showStatus('❌ Camera not available', 'error');
-                    }
-                });
+            if (!scannerActive) {
+                console.log('Starting scanner...');
+                startScanner();
             } else {
-                console.log('Stopping camera...');
-                stopScanning();
-                if (stream) {
-                    stream.getTracks().forEach(track => track.stop());
-                }
-                videoContainer.style.display = 'none';
-                cameraActive = false;
-                cameraBtn.textContent = '📱 Start Scanner';
-                cameraBtn.classList.remove('active');
-                validationBuffer = [];
-                updateValidationInfo(0, REQUIRED_MATCHES);
-                showStatus('Camera stopped', 'info');
+                console.log('Stopping scanner...');
+                stopScanner();
             }
         }
         
-        function startNativeScanning() {
-            const video = document.getElementById('camera-video');
-            console.log('Starting enhanced native barcode scanning...');
+        function startScanner() {
+            const cameraBtn = document.getElementById('cameraBtn');
+            const scannerContainer = document.getElementById('scanner-container');
             
-            scanningInterval = setInterval(async () => {
-                if (!cameraActive || !video.readyState || video.readyState !== video.HAVE_ENOUGH_DATA) {
+            showStatus('🔄 Starting scanner...', 'info');
+            
+            // QuaggaJS configuration for 1D barcodes
+            Quagga.init({
+                inputStream: {
+                    name: "Live",
+                    type: "LiveStream",
+                    target: scannerContainer,
+                    constraints: {
+                        width: 640,
+                        height: 480,
+                        facingMode: "environment"
+                    }
+                },
+                decoder: {
+                    readers: [
+                        "code_128_reader",  // Code 128
+                        "code_39_reader",   // Code 39
+                        "ean_reader",       // EAN-13
+                        "ean_8_reader",     // EAN-8
+                        "upc_reader",       // UPC-A
+                        "upc_e_reader"      // UPC-E
+                    ]
+                },
+                locate: true
+            }, function(err) {
+                if (err) {
+                    console.error('Scanner initialization failed:', err);
+                    showStatus('❌ Scanner failed to start', 'error');
                     return;
                 }
                 
-                try {
-                    if (barcodeDetector) {
-                        const barcodes = await barcodeDetector.detect(video);
-                        
-                        if (barcodes.length > 0) {
-                            const now = Date.now();
-                            if (now - lastScannedTime > 200) {
-                                const barcode = barcodes[0];
-                                const rawValue = barcode.rawValue;
-                                const format = barcode.format;
-                                
-                                if (rawValue && isValidBarcodeFormat(rawValue)) {
-                                    console.log(`Native scan detected - ${format}: "${rawValue}"`);
-                                    
-                                    const validation = validateScanConsistency(rawValue);
-                                    
-                                    if (validation.valid) {
-                                        handleScan(rawValue, format);
-                                    } else if (validation.partial) {
-                                        console.log(`Validation progress: ${validation.matches}/${validation.required} for ${rawValue}`);
-                                        showStatus(`🔍 Validating: ${validation.matches}/${validation.required} - keep scanning same code`, 'warning');
-                                    }
-                                } else {
-                                    console.log('Invalid barcode format filtered out:', rawValue);
-                                }
-                                
-                                lastScannedTime = now;
-                            }
-                        }
-                    }
-                } catch (error) {
-                    console.error('Native scanning error:', error);
-                }
-            }, 150);
-        }
-        
-        function startFallbackScanning() {
-            const video = document.getElementById('camera-video');
-            console.log('Using fallback scanning mode');
+                console.log('Scanner initialized successfully');
+                Quagga.start();
+                
+                scannerActive = true;
+                scannerContainer.style.display = 'block';
+                cameraBtn.textContent = '🛑 Stop Scanner';
+                cameraBtn.classList.add('active');
+                
+                showStatus('📱 Scanner active! Point at barcode', 'success');
+            });
             
-            video.onclick = function() {
-                showStatus('📱 Camera active - manually type the barcode you see', 'info');
-                document.getElementById('manualInput').classList.add('active');
-                document.getElementById('manualBarcode').focus();
-            };
+            // Handle successful barcode detection
+            Quagga.onDetected(function(result) {
+                const code = result.codeResult.code;
+                const format = result.codeResult.format;
+                
+                console.log(`Detected ${format}: ${code}`);
+                handleScan(code, format);
+            });
+            
+            // Also try native BarcodeDetector for QR codes if available
+            tryNativeQRScanner();
         }
         
-        function stopScanning() {
-            if (scanningInterval) {
-                clearInterval(scanningInterval);
-                scanningInterval = null;
+        function stopScanner() {
+            const cameraBtn = document.getElementById('cameraBtn');
+            const scannerContainer = document.getElementById('scanner-container');
+            
+            if (scannerActive) {
+                Quagga.stop();
+                scannerActive = false;
+                scannerContainer.style.display = 'none';
+                cameraBtn.textContent = '📱 Start Scanner';
+                cameraBtn.classList.remove('active');
+                
+                showStatus('Scanner stopped', 'info');
             }
-            
-            const video = document.getElementById('camera-video');
-            if (video) {
-                video.onclick = null;
+        }
+        
+        // Try to add QR code support using native BarcodeDetector
+        function tryNativeQRScanner() {
+            if ('BarcodeDetector' in window) {
+                console.log('Adding QR code support...');
+                
+                const video = document.querySelector('#scanner-container video');
+                if (!video) return;
+                
+                const qrDetector = new BarcodeDetector({ formats: ['qr_code'] });
+                
+                const scanQR = async () => {
+                    if (!scannerActive || !video.readyState) return;
+                    
+                    try {
+                        const barcodes = await qrDetector.detect(video);
+                        if (barcodes.length > 0) {
+                            const qrCode = barcodes[0].rawValue;
+                            console.log('QR Code detected:', qrCode);
+                            handleScan(qrCode, 'qr_code');
+                        }
+                    } catch (error) {
+                        // Silently ignore QR scanning errors
+                    }
+                    
+                    if (scannerActive) {
+                        setTimeout(scanQR, 500); // Check for QR codes every 500ms
+                    }
+                };
+                
+                video.addEventListener('loadeddata', () => {
+                    scanQR();
+                });
             }
         }
         
         function toggleManualInput() {
-            console.log('Manual input toggle function called');
             const manualInput = document.getElementById('manualInput');
             if (manualInput.classList.contains('active')) {
                 manualInput.classList.remove('active');
@@ -904,52 +707,48 @@
         }
         
         function addManualPart() {
-            console.log('Add manual part function called');
             const barcodeInput = document.getElementById('manualBarcode');
-            let barcode = barcodeInput.value.trim();
+            const barcode = cleanBarcode(barcodeInput.value);
             
             if (!barcode) {
-                showStatus('⚠️ Please enter a barcode', 'error');
-                return;
-            }
-            
-            const cleanCode = barcode.replace(/[\s\r\n\t]/g, '').toUpperCase();
-            
-            if (!isValidBarcodeFormat(cleanCode)) {
-                showStatus('⚠️ Invalid barcode format', 'error');
+                showStatus('⚠️ Please enter a valid barcode', 'error');
                 return;
             }
             
             barcodeInput.value = '';
-            handleScan(cleanCode, 'Manual Entry');
+            handleScan(barcode, 'manual');
             barcodeInput.focus();
         }
         
         // ========================================
-        // PARTS MANAGEMENT FUNCTIONS
+        // BARCODE HANDLING - IMMEDIATE ADD
         // ========================================
         
-        function handleScan(code, scanType = 'Scan') {
-            console.log(`Handling validated scan - ${scanType}: ${code}`);
+        function handleScan(code, format) {
             const now = Date.now();
+            const cleanCode = cleanBarcode(code);
             
-            if (!isValidBarcodeFormat(code)) {
-                showStatus('⚠️ Invalid barcode format detected', 'error');
+            if (!cleanCode) {
+                console.log('Invalid barcode filtered out:', code);
                 return;
             }
             
-            if (now - lastScannedTime < SCAN_COOLDOWN && scanType !== 'Manual Entry') {
+            // Prevent duplicate scans of the same code within cooldown period
+            if (cleanCode === lastScannedCode && (now - lastScannedTime) < SCAN_COOLDOWN) {
+                console.log('Duplicate scan ignored:', cleanCode);
                 return;
             }
+            
+            lastScannedCode = cleanCode;
             lastScannedTime = now;
             
-            const cleanCode = String(code).trim().toUpperCase();
-            
+            // Vibrate if available
             if (navigator.vibrate) {
-                navigator.vibrate([200, 100, 200]);
+                navigator.vibrate(200);
             }
             
-            const existingPart = parts.find(part => part.barcode.toUpperCase() === cleanCode);
+            // Add or update part immediately
+            const existingPart = parts.find(part => part.barcode === cleanCode);
             
             if (existingPart) {
                 existingPart.quantity += 1;
@@ -959,8 +758,7 @@
                     id: partIdCounter++,
                     barcode: cleanCode,
                     quantity: 1,
-                    scanMethod: scanType,
-                    validated: true
+                    format: format
                 });
                 showStatus(`📦 Added: ${cleanCode}`, 'success');
             }
@@ -971,36 +769,20 @@
         }
         
         // ========================================
-        // PARTS LIST MANAGEMENT - NO innerHTML!
-        // Using pure DOM methods to avoid event listener destruction
+        // PARTS LIST MANAGEMENT
         // ========================================
         
         function createPartElement(part) {
-            console.log('Creating part element for:', part.barcode);
-            
-            // Create main container
             const partDiv = document.createElement('div');
             partDiv.className = 'part-item';
             
-            // Create header container
             const partHeader = document.createElement('div');
             partHeader.className = 'part-header';
-            
-            // Create info section
-            const partInfo = document.createElement('div');
             
             const partBarcode = document.createElement('div');
             partBarcode.className = 'part-barcode';
             partBarcode.textContent = part.barcode;
             
-            const partValidation = document.createElement('div');
-            partValidation.className = 'part-validation';
-            partValidation.textContent = `Validated via ${part.scanMethod || 'Scan'}`;
-            
-            partInfo.appendChild(partBarcode);
-            partInfo.appendChild(partValidation);
-            
-            // Create controls section
             const partControls = document.createElement('div');
             partControls.className = 'part-controls';
             
@@ -1008,14 +790,11 @@
             qtyLabel.className = 'qty-label';
             qtyLabel.textContent = 'Qty:';
             
-            // Decrease button with data attribute for event delegation
             const decreaseBtn = document.createElement('button');
             decreaseBtn.className = 'btn-qty btn-qty-decrease';
             decreaseBtn.textContent = '-';
             decreaseBtn.setAttribute('data-part-id', part.id);
-            // No onclick needed - handled by event delegation!
             
-            // Quantity input with data attribute
             const qtyInput = document.createElement('input');
             qtyInput.type = 'number';
             qtyInput.className = 'qty-input';
@@ -1023,45 +802,34 @@
             qtyInput.max = '999';
             qtyInput.value = part.quantity;
             qtyInput.setAttribute('data-part-id', part.id);
-            // No onchange needed - handled by event delegation!
             
-            // Increase button with data attribute
             const increaseBtn = document.createElement('button');
             increaseBtn.className = 'btn-qty btn-qty-increase';
             increaseBtn.textContent = '+';
             increaseBtn.setAttribute('data-part-id', part.id);
-            // No onclick needed - handled by event delegation!
             
-            // Remove button with data attribute
             const removeBtn = document.createElement('button');
             removeBtn.className = 'btn-remove';
             removeBtn.textContent = 'Remove';
             removeBtn.setAttribute('data-part-id', part.id);
-            // No onclick needed - handled by event delegation!
             
-            // Assemble controls
             partControls.appendChild(qtyLabel);
             partControls.appendChild(decreaseBtn);
             partControls.appendChild(qtyInput);
             partControls.appendChild(increaseBtn);
             partControls.appendChild(removeBtn);
             
-            // Assemble header
-            partHeader.appendChild(partInfo);
+            partHeader.appendChild(partBarcode);
             partHeader.appendChild(partControls);
-            
-            // Assemble final element
             partDiv.appendChild(partHeader);
             
-            console.log('Part element created successfully');
             return partDiv;
         }
         
         function updatePartsList() {
-            console.log('Updating parts list with', parts.length, 'parts');
             const partsList = document.getElementById('partsList');
             
-            // Clear existing content safely without using innerHTML
+            // Clear existing content
             while (partsList.firstChild) {
                 partsList.removeChild(partsList.firstChild);
             }
@@ -1074,51 +842,42 @@
                 return;
             }
             
-            // Create parts using pure DOM methods - this preserves ALL event listeners!
+            // Create parts using DOM methods
             parts.forEach(part => {
                 const partElement = createPartElement(part);
                 partsList.appendChild(partElement);
             });
-            
-            console.log('Parts list updated successfully');
         }
         
         function increaseQuantity(partId) {
-            console.log('Increasing quantity for part ID:', partId);
             const part = parts.find(p => p.id === partId);
             if (part && part.quantity < 999) {
                 part.quantity += 1;
                 updatePartsList();
                 updateSummary();
-                showStatus(`📈 Increased ${part.barcode} to ${part.quantity}`, 'success');
             }
         }
         
         function decreaseQuantity(partId) {
-            console.log('Decreasing quantity for part ID:', partId);
             const part = parts.find(p => p.id === partId);
             if (part && part.quantity > 1) {
                 part.quantity -= 1;
                 updatePartsList();
                 updateSummary();
-                showStatus(`📉 Decreased ${part.barcode} to ${part.quantity}`, 'success');
             }
         }
         
         function updateQuantity(partId, newQuantity) {
-            console.log('Updating quantity for part ID:', partId, 'to:', newQuantity);
             const quantity = parseInt(newQuantity) || 1;
             const part = parts.find(p => p.id === partId);
             if (part) {
                 part.quantity = Math.max(1, Math.min(999, quantity));
                 updatePartsList();
                 updateSummary();
-                showStatus(`🔄 Updated ${part.barcode} to ${part.quantity}`, 'success');
             }
         }
         
         function removePart(partId) {
-            console.log('Removing part ID:', partId);
             const partIndex = parts.findIndex(p => p.id === partId);
             if (partIndex > -1) {
                 const removedPart = parts.splice(partIndex, 1)[0];
@@ -1159,7 +918,6 @@
         // ========================================
         
         function completeTransfer() {
-            console.log('Complete transfer function called');
             const fromLocation = document.getElementById('fromLocation').value.trim();
             const toLocation = document.getElementById('toLocation').value.trim();
             
@@ -1190,7 +948,6 @@
         }
         
         function saveToGoogleSheets(transferData) {
-            console.log('Saving to Google Sheets...');
             showStatus('💾 Saving transfer...', 'info');
             
             fetch(GOOGLE_SHEETS_URL, {
@@ -1224,8 +981,8 @@
             updateSummary();
             checkCompleteButton();
             
-            if (cameraActive) {
-                toggleCamera();
+            if (scannerActive) {
+                stopScanner();
             }
             
             document.getElementById('manualInput').classList.remove('active');
@@ -1236,64 +993,16 @@
         // INITIALIZATION
         // ========================================
         
-        // Initialize when DOM is loaded
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('App initializing with event delegation...');
+            console.log('Simple barcode scanner initializing...');
             
-            // BACKUP: Direct event listeners for critical buttons as fallback
-            const cameraBtn = document.getElementById('cameraBtn');
-            const manualBtn = document.getElementById('manualBtn');
-            const addBtn = document.getElementById('addBtn');
-            const completeBtn = document.getElementById('completeBtn');
-            
-            if (cameraBtn) {
-                console.log('Adding direct listener to camera button as backup');
-                cameraBtn.addEventListener('click', function(e) {
-                    console.log('Camera button clicked directly');
-                    e.preventDefault();
-                    e.stopPropagation();
-                    toggleCamera();
-                });
-            }
-            
-            if (manualBtn) {
-                console.log('Adding direct listener to manual button as backup');
-                manualBtn.addEventListener('click', function(e) {
-                    console.log('Manual button clicked directly');
-                    e.preventDefault();
-                    e.stopPropagation();
-                    toggleManualInput();
-                });
-            }
-            
-            if (addBtn) {
-                console.log('Adding direct listener to add button as backup');
-                addBtn.addEventListener('click', function(e) {
-                    console.log('Add button clicked directly');
-                    e.preventDefault();
-                    e.stopPropagation();
-                    addManualPart();
-                });
-            }
-            
-            if (completeBtn) {
-                console.log('Adding direct listener to complete button as backup');
-                completeBtn.addEventListener('click', function(e) {
-                    console.log('Complete button clicked directly');
-                    e.preventDefault();
-                    e.stopPropagation();
-                    completeTransfer();
-                });
-            }
-            
-            // Test camera permissions immediately
-            console.log('Testing camera availability...');
+            // Check for camera support
             if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                console.log('Camera API available');
-                showStatus('📱 Camera ready - click Start Scanner', 'info');
+                console.log('Camera supported');
+                showStatus('📱 Scanner ready - supports Code 128, Code 39, and QR codes', 'success');
             } else {
-                console.log('Camera API not available');
-                showStatus('⚠️ Camera not available on this device', 'warning');
+                console.log('Camera not supported');
+                showStatus('⚠️ Camera not available - manual entry only', 'error');
             }
             
             // Initial setup
@@ -1301,12 +1010,17 @@
             updateSummary();
             checkCompleteButton();
             
-            console.log('App initialized successfully with dual event system');
-            showStatus('✅ Scanner ready with enhanced validation', 'success');
+            console.log('Scanner initialization complete');
         });
         
-        // Debug logging to verify event delegation is working
-        console.log('Event delegation system loaded successfully');
+        // Handle page unload to cleanup scanner
+        window.addEventListener('beforeunload', function() {
+            if (scannerActive) {
+                stopScanner();
+            }
+        });
+        
+        console.log('Simple barcode scanner loaded successfully');
     </script>
 </body>
 </html>
