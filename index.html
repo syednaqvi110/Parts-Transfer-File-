@@ -550,30 +550,38 @@
             
             console.log('Click detected on:', target.tagName, 'ID:', id, 'Class:', className);
             
-            // Camera button
-            if (id === 'cameraBtn') {
+            // Camera button - multiple ways to detect it
+            if (id === 'cameraBtn' || target.classList.contains('btn-camera')) {
                 console.log('Camera button clicked via delegation');
+                event.preventDefault();
+                event.stopPropagation();
                 toggleCamera();
                 return;
             }
             
             // Manual input button  
-            if (id === 'manualBtn') {
+            if (id === 'manualBtn' || target.classList.contains('btn-manual')) {
                 console.log('Manual button clicked via delegation');
+                event.preventDefault();
+                event.stopPropagation();
                 toggleManualInput();
                 return;
             }
             
             // Add manual part button
-            if (id === 'addBtn') {
+            if (id === 'addBtn' || target.classList.contains('btn-add')) {
                 console.log('Add button clicked via delegation');
+                event.preventDefault();
+                event.stopPropagation();
                 addManualPart();
                 return;
             }
             
             // Complete transfer button
-            if (id === 'completeBtn') {
+            if (id === 'completeBtn' || target.classList.contains('btn-complete')) {
                 console.log('Complete button clicked via delegation');
+                event.preventDefault();
+                event.stopPropagation();
                 completeTransfer();
                 return;
             }
@@ -1232,13 +1240,69 @@
         document.addEventListener('DOMContentLoaded', function() {
             console.log('App initializing with event delegation...');
             
+            // BACKUP: Direct event listeners for critical buttons as fallback
+            const cameraBtn = document.getElementById('cameraBtn');
+            const manualBtn = document.getElementById('manualBtn');
+            const addBtn = document.getElementById('addBtn');
+            const completeBtn = document.getElementById('completeBtn');
+            
+            if (cameraBtn) {
+                console.log('Adding direct listener to camera button as backup');
+                cameraBtn.addEventListener('click', function(e) {
+                    console.log('Camera button clicked directly');
+                    e.preventDefault();
+                    e.stopPropagation();
+                    toggleCamera();
+                });
+            }
+            
+            if (manualBtn) {
+                console.log('Adding direct listener to manual button as backup');
+                manualBtn.addEventListener('click', function(e) {
+                    console.log('Manual button clicked directly');
+                    e.preventDefault();
+                    e.stopPropagation();
+                    toggleManualInput();
+                });
+            }
+            
+            if (addBtn) {
+                console.log('Adding direct listener to add button as backup');
+                addBtn.addEventListener('click', function(e) {
+                    console.log('Add button clicked directly');
+                    e.preventDefault();
+                    e.stopPropagation();
+                    addManualPart();
+                });
+            }
+            
+            if (completeBtn) {
+                console.log('Adding direct listener to complete button as backup');
+                completeBtn.addEventListener('click', function(e) {
+                    console.log('Complete button clicked directly');
+                    e.preventDefault();
+                    e.stopPropagation();
+                    completeTransfer();
+                });
+            }
+            
+            // Test camera permissions immediately
+            console.log('Testing camera availability...');
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                console.log('Camera API available');
+                showStatus('📱 Camera ready - click Start Scanner', 'info');
+            } else {
+                console.log('Camera API not available');
+                showStatus('⚠️ Camera not available on this device', 'warning');
+            }
+            
             // Initial setup
             updatePartsList();
             updateSummary();
             checkCompleteButton();
             
-            console.log('App initialized successfully with event delegation');
-            showStatus('✅ Enhanced scanner ready - buttons fixed!', 'success');
+            console.log('App initialized successfully with dual event system');
+            showStatus('✅ Scanner ready with enhanced validation', 'success');
         });
         
         // Debug logging to verify event delegation is working
