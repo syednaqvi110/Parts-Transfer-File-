@@ -415,7 +415,7 @@
                 <div class="video-container" id="videoContainer">
                     <video id="camera-video" autoplay playsinline muted></video>
                     <div class="scan-overlay"></div>
-                    <div class="scan-instructions">Scanning Code 39, Code 128 & QR codes</div>
+                    <div class="scan-instructions">Camera active - use native browser scanner</div>
                 </div>
                 
                 <button class="btn btn-manual" id="manualBtn">
@@ -453,10 +453,6 @@
         </div>
     </div>
 
-    <!-- External Libraries for Real Barcode/QR Scanning -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
-
     <script>
         // Google Apps Script URL
         const GOOGLE_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwiqO5kOkZKibMGXdg2WpqVnbikrIRxL3LJg6WjPf1Jda9gW1Y8xNDEdr-I-m4FJJisTA/exec';
@@ -466,9 +462,8 @@
         let parts = [];
         let partIdCounter = 1;
         let lastScannedTime = 0;
-        let qrCanvas = null;
-        let qrContext = null;
-        let qrScanInterval = null;
+        let barcodeDetector = null;
+        let scanningInterval = null;
         
         function showStatus(message, type = 'success') {
             const statusDiv = document.getElementById('status');
@@ -482,6 +477,26 @@
             }, 4000);
         }
         
+        // Initialize native barcode detector if available
+        async function initBarcodeDetector() {
+            try {
+                if ('BarcodeDetector' in window) {
+                    const supportedFormats = await BarcodeDetector.getSupportedFormats();
+                    console.log('Supported barcode formats:', supportedFormats);
+                    
+                    barcodeDetector = new BarcodeDetector({
+                        formats: supportedFormats
+                    });
+                    
+                    console.log('Native BarcodeDetector initialized');
+                    return true;
+                }
+            } catch (error) {
+                console.log('BarcodeDetector not available:', error);
+            }
+            return false;
+        }
+        
         function toggleCamera() {
             console.log('Camera button clicked');
             const videoContainer = document.getElementById('videoContainer');
@@ -493,9 +508,13 @@
                 showStatus('🔄 Starting camera...', 'info');
                 
                 navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: 'environment' }
+                    video: { 
+                        facingMode: 'environment',
+                        width: { ideal: 1920, min: 640 },
+                        height: { ideal: 1080, min: 480 }
+                    }
                 })
-                .then(mediaStream => {
+                .then(async (mediaStream) => {
                     console.log('Camera started successfully');
                     stream = mediaStream;
                     video.srcObject = stream;
@@ -504,19 +523,31 @@
                     cameraBtn.textContent = '🛑 Stop Scanner';
                     cameraBtn.classList.add('active');
                     
-                    // Wait for video to load, then start real scanning
+                    // Initialize barcode detection
+                    const hasNativeDetector = await initBarcodeDetector();
+                    
+                    // Start scanning
                     video.addEventListener('loadedmetadata', () => {
-                        startRealScanning();
-                        showStatus('📱 Scanner ready! Point at Code 39, Code 128, or QR codes', 'info');
+                        if (hasNativeDetector) {
+                            startNativeScanning();
+                            showStatus('📱 Native scanner active! Point at Code 39, Code 128, or QR codes', 'info');
+                        } else {
+                            startFallbackScanning();
+                            showStatus('📱 Camera active! Use for manual identification', 'info');
+                        }
                     });
                 })
                 .catch(err => {
                     console.error('Camera error:', err);
-                    showStatus('❌ Camera not available', 'error');
+                    if (err.name === 'NotAllowedError') {
+                        showStatus('❌ Camera permission denied', 'error');
+                    } else {
+                        showStatus('❌ Camera not available', 'error');
+                    }
                 });
             } else {
                 console.log('Stopping camera...');
-                stopRealScanning();
+                stopScanning();
                 if (stream) {
                     stream.getTracks().forEach(track => track.stop());
                 }
@@ -528,131 +559,56 @@
             }
         }
         
-        function startRealScanning() {
+        function startNativeScanning() {
             const video = document.getElementById('camera-video');
-            console.log('Starting real barcode scanning...');
+            console.log('Starting native barcode scanning...');
             
-            // Initialize QuaggaJS for Code 39 and Code 128
-            Quagga.init({
-                inputStream: {
-                    name: "Live",
-                    type: "LiveStream",
-                    target: video,
-                    constraints: {
-                        width: { min: 640, ideal: 1920 },
-                        height: { min: 480, ideal: 1080 },
-                        facingMode: "environment"
-                    }
-                },
-                locator: {
-                    patchSize: "medium",
-                    halfSample: true
-                },
-                numOfWorkers: 2,
-                frequency: 10,
-                decoder: {
-                    readers: [
-                        "code_128_reader",  // Code 128
-                        "code_39_reader",   // Code 39
-                        "ean_reader",       // EAN (backup)
-                        "upc_reader"        // UPC (backup)
-                    ]
-                },
-                locate: true
-            }, function(err) {
-                if (err) {
-                    console.log('QuaggaJS failed to initialize:', err);
-                    showStatus('⚠️ Advanced scanner failed - using basic mode', 'info');
-                } else {
-                    console.log("QuaggaJS initialized for Code 39/128");
-                    Quagga.start();
-                }
-            });
-            
-            // Listen for barcode detection
-            Quagga.onDetected(function(result) {
-                const code = result.codeResult.code;
-                const format = result.codeResult.format;
-                console.log(`Detected ${format}: ${code}`);
-                handleRealScan(code, format);
-            });
-            
-            // Start QR code scanning
-            startQRScanning();
-        }
-        
-        function startQRScanning() {
-            const video = document.getElementById('camera-video');
-            
-            // Create canvas for QR code detection
-            if (!qrCanvas) {
-                qrCanvas = document.createElement('canvas');
-                qrContext = qrCanvas.getContext('2d');
-            }
-            
-            console.log('Starting QR code scanning...');
-            
-            // QR code scanning loop
-            qrScanInterval = setInterval(() => {
+            scanningInterval = setInterval(async () => {
                 if (!cameraActive || !video.readyState || video.readyState !== video.HAVE_ENOUGH_DATA) {
                     return;
                 }
                 
                 try {
-                    qrCanvas.width = video.videoWidth;
-                    qrCanvas.height = video.videoHeight;
-                    qrContext.drawImage(video, 0, 0, qrCanvas.width, qrCanvas.height);
-                    
-                    const imageData = qrContext.getImageData(0, 0, qrCanvas.width, qrCanvas.height);
-                    
-                    if (typeof jsQR !== 'undefined') {
-                        const code = jsQR(imageData.data, imageData.width, imageData.height);
+                    if (barcodeDetector) {
+                        const barcodes = await barcodeDetector.detect(video);
                         
-                        if (code) {
-                            console.log(`Detected QR Code: ${code.data}`);
-                            handleRealScan(code.data, 'QR Code');
+                        if (barcodes.length > 0) {
+                            const now = Date.now();
+                            if (now - lastScannedTime > 2000) { // 2-second cooldown
+                                const barcode = barcodes[0];
+                                console.log(`Native scan detected - ${barcode.format}: ${barcode.rawValue}`);
+                                handleScan(barcode.rawValue.trim().toUpperCase(), barcode.format);
+                            }
                         }
                     }
                 } catch (error) {
-                    console.error('QR scanning error:', error);
+                    console.error('Native scanning error:', error);
                 }
-            }, 500); // Check every 500ms
+            }, 200); // Check every 200ms
         }
         
-        function stopRealScanning() {
-            // Stop QuaggaJS
-            if (typeof Quagga !== 'undefined') {
-                Quagga.stop();
-                console.log('QuaggaJS stopped');
+        function startFallbackScanning() {
+            const video = document.getElementById('camera-video');
+            console.log('Using fallback scanning mode');
+            
+            // Allow manual identification - user can see barcode and type it
+            video.onclick = function() {
+                showStatus('📱 Camera active - manually type the barcode you see', 'info');
+                document.getElementById('manualInput').classList.add('active');
+                document.getElementById('manualBarcode').focus();
+            };
+        }
+        
+        function stopScanning() {
+            if (scanningInterval) {
+                clearInterval(scanningInterval);
+                scanningInterval = null;
             }
             
-            // Stop QR scanning interval
-            if (qrScanInterval) {
-                clearInterval(qrScanInterval);
-                qrScanInterval = null;
-                console.log('QR scanning stopped');
+            const video = document.getElementById('camera-video');
+            if (video) {
+                video.onclick = null;
             }
-        }
-        
-        function handleRealScan(code, format) {
-            const now = Date.now();
-            if (now - lastScannedTime > 2000) { // 2-second cooldown
-                lastScannedTime = now;
-                console.log(`Real scan detected - ${format}: ${code}`);
-                
-                // Clean and normalize the code
-                const cleanCode = code.trim().toUpperCase();
-                
-                // Add visual/audio feedback
-                if (navigator.vibrate) {
-                    navigator.vibrate([200, 100, 200]);
-                }
-                
-                // Add the scanned part
-                handleScan(cleanCode);
-                showStatus(`📦 ${format} Scanned: ${cleanCode}`, 'success');
-            }
-        }
         }
         
         function toggleManualInput() {
@@ -677,13 +633,18 @@
             }
             
             barcodeInput.value = '';
-            handleScan(barcode);
+            handleScan(barcode, 'Manual Entry');
             barcodeInput.focus();
         }
         
-        function handleScan(code) {
-            console.log('Handling scan:', code);
+        function handleScan(code, scanType = 'Scan') {
+            console.log(`Handling scan - ${scanType}: ${code}`);
             lastScannedTime = Date.now();
+            
+            // Vibrate if available
+            if (navigator.vibrate) {
+                navigator.vibrate([200, 100, 200]);
+            }
             
             // Check if part already exists
             const existingPart = parts.find(part => part.barcode === code);
