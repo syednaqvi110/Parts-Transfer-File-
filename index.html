@@ -156,7 +156,7 @@
         
         #camera-video {
             width: 100%;
-            height: 250px;
+            height: 300px;
             object-fit: cover;
         }
         
@@ -166,8 +166,8 @@
             left: 50%;
             transform: translate(-50%, -50%);
             border: 3px solid #ef4444;
-            width: 180px;
-            height: 70px;
+            width: 200px;
+            height: 80px;
             border-radius: 8px;
             background: rgba(239, 68, 68, 0.1);
             animation: pulse 2s infinite;
@@ -417,7 +417,7 @@
     <div class="container">
         <div class="header">
             <h1>🚚 Parts Transfer</h1>
-            <p>Scan parts and track location transfers</p>
+            <p>Scan barcodes & QR codes for inventory tracking</p>
         </div>
         
         <div class="content">
@@ -432,7 +432,7 @@
                 
                 <div class="form-group">
                     <label for="toLocation">To Location <span class="required">*</span>:</label>
-                    <input type="text" id="toLocation" placeholder="e.g., Job Site A" required>
+                    <input type="text" id="toLocation" placeholder="e.g., OTT19001" required>
                 </div>
             </div>
             
@@ -441,25 +441,17 @@
                 <h2 class="section-title">📦 Scan Parts</h2>
                 
                 <button class="btn btn-camera" id="cameraBtn" onclick="toggleCamera()">
-                    📱 Start Barcode Scanner
+                    📱 Start Scanner
                 </button>
                 
                 <div class="video-container" id="videoContainer">
                     <video id="camera-video" autoplay playsinline muted></video>
                     <div class="scan-overlay"></div>
-                    <div class="scan-instructions">Point at barcode - auto scans</div>
+                    <div class="scan-instructions">Scans barcodes & QR codes automatically</div>
                 </div>
                 
                 <button class="btn btn-manual" onclick="toggleManualInput()">
                     ⌨️ Manual Entry
-                </button>
-                
-                <button class="btn btn-manual" onclick="testScan()" style="background: #f59e0b;">
-                    🧪 Test Scan (Debug)
-                </button>
-                
-                <button class="btn btn-manual" onclick="testGoogleSheets()" style="background: #ef4444;">
-                    📊 Test Google Sheets
                 </button>
                 
                 <div class="manual-input" id="manualInput">
@@ -493,57 +485,34 @@
         </div>
     </div>
 
+    <!-- External Libraries for Real Barcode/QR Scanning -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+
     <script>
         // Google Apps Script URL
         const GOOGLE_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwiqO5kOkZKibMGXdg2WpqVnbikrIRxL3LJg6WjPf1Jda9gW1Y8xNDEdr-I-m4FJJisTA/exec';
         
         let cameraActive = false;
         let stream = null;
-        let scanningInterval = null;
-        let lastScannedTime = 0;
-        let barcodeDetector = null;
         let parts = [];
         let partIdCounter = 1;
+        let lastScannedTime = 0;
+        let qrCanvas = null;
+        let qrContext = null;
+        let qrScanInterval = null;
         
         function showStatus(message, type = 'success') {
             const statusDiv = document.getElementById('status');
             statusDiv.textContent = message;
             statusDiv.className = `status ${type}`;
             
-            // Also log to console for debugging
             console.log(`Status (${type}): ${message}`);
             
             setTimeout(() => {
                 statusDiv.textContent = '';
                 statusDiv.className = '';
             }, 4000);
-        }
-        
-        async function initializeBarcodeDetector() {
-            try {
-                console.log('Checking for BarcodeDetector support...');
-                
-                if ('BarcodeDetector' in window) {
-                    console.log('BarcodeDetector supported!');
-                    const supportedFormats = await BarcodeDetector.getSupportedFormats();
-                    console.log('Supported formats:', supportedFormats);
-                    
-                    barcodeDetector = new BarcodeDetector({
-                        formats: supportedFormats
-                    });
-                    
-                    showStatus('✅ Advanced scanner ready!', 'success');
-                    return true;
-                } else {
-                    console.log('BarcodeDetector not supported - using fallback');
-                    showStatus('⚠️ Using basic scanner mode', 'info');
-                    return false;
-                }
-            } catch (error) {
-                console.error('BarcodeDetector init failed:', error);
-                showStatus('⚠️ Using basic scanner mode', 'info');
-                return false;
-            }
         }
         
         async function toggleCamera() {
@@ -558,19 +527,16 @@
                     console.log('Starting camera...');
                     showStatus('🔄 Starting camera...', 'info');
                     
-                    // Check if getUserMedia is available
                     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                        throw new Error('getUserMedia not supported');
+                        throw new Error('Camera not supported');
                     }
-                    
-                    await initializeBarcodeDetector();
                     
                     console.log('Requesting camera permission...');
                     stream = await navigator.mediaDevices.getUserMedia({
                         video: { 
                             facingMode: 'environment',
-                            width: { ideal: 1280 },
-                            height: { ideal: 720 }
+                            width: { ideal: 1920, min: 640 },
+                            height: { ideal: 1080, min: 480 }
                         }
                     });
                     
@@ -584,134 +550,163 @@
                     // Wait for video to be ready
                     video.addEventListener('loadedmetadata', () => {
                         console.log('Video loaded, starting scanning...');
-                        startScanning();
-                        showStatus('📱 Scanner active! Point at barcodes', 'info');
+                        initializeScanning();
+                        showStatus('📱 Scanner active! Point at barcodes or QR codes', 'info');
                     });
                     
                 } catch (err) {
                     console.error('Camera error:', err);
                     if (err.name === 'NotAllowedError') {
-                        showStatus('❌ Camera permission denied. Please allow camera access in browser settings.', 'error');
+                        showStatus('❌ Camera permission denied. Please allow camera access.', 'error');
                     } else if (err.name === 'NotFoundError') {
                         showStatus('❌ No camera found on this device.', 'error');
-                    } else if (err.name === 'NotSupportedError') {
-                        showStatus('❌ Camera not supported in this browser.', 'error');
                     } else {
                         showStatus(`❌ Camera error: ${err.message}`, 'error');
                     }
                 }
             } else {
                 console.log('Stopping camera...');
+                stopScanning();
                 if (stream) {
                     stream.getTracks().forEach(track => {
                         console.log('Stopping track:', track);
                         track.stop();
                     });
                 }
-                stopScanning();
                 videoContainer.style.display = 'none';
                 cameraActive = false;
-                cameraBtn.textContent = '📱 Start Barcode Scanner';
+                cameraBtn.textContent = '📱 Start Scanner';
                 cameraBtn.classList.remove('active');
                 showStatus('Scanner stopped', 'info');
             }
         }
         
-        function startScanning() {
+        function initializeScanning() {
             const video = document.getElementById('camera-video');
-            console.log('Starting scanning loop...');
             
-            scanningInterval = setInterval(async () => {
+            // Initialize QuaggaJS for barcode scanning
+            Quagga.init({
+                inputStream: {
+                    name: "Live",
+                    type: "LiveStream",
+                    target: video,
+                    constraints: {
+                        width: { min: 640, ideal: 1920 },
+                        height: { min: 480, ideal: 1080 },
+                        facingMode: "environment"
+                    }
+                },
+                locator: {
+                    patchSize: "medium",
+                    halfSample: true
+                },
+                numOfWorkers: 2,
+                frequency: 10,
+                decoder: {
+                    readers: [
+                        "code_128_reader",
+                        "ean_reader", 
+                        "ean_8_reader",
+                        "code_39_reader",
+                        "code_93_reader",
+                        "code_39_vin_reader",
+                        "codabar_reader",
+                        "upc_reader",
+                        "upc_e_reader",
+                        "i2of5_reader"
+                    ]
+                },
+                locate: true
+            }, function(err) {
+                if (err) {
+                    console.log('QuaggaJS init failed:', err);
+                } else {
+                    console.log("QuaggaJS initialized successfully");
+                    Quagga.start();
+                }
+            });
+            
+            // Listen for barcode detection
+            Quagga.onDetected(function(result) {
+                const code = result.codeResult.code;
+                handleSuccessfulScan(code, 'Barcode');
+            });
+            
+            // Initialize QR code scanning
+            initializeQRScanning();
+        }
+        
+        function initializeQRScanning() {
+            const video = document.getElementById('camera-video');
+            
+            // Create canvas for QR code detection
+            if (!qrCanvas) {
+                qrCanvas = document.createElement('canvas');
+                qrContext = qrCanvas.getContext('2d');
+            }
+            
+            // QR code scanning loop
+            qrScanInterval = setInterval(() => {
                 if (!cameraActive || !video.readyState || video.readyState !== video.HAVE_ENOUGH_DATA) {
                     return;
                 }
                 
                 try {
-                    if (barcodeDetector) {
-                        const barcodes = await barcodeDetector.detect(video);
+                    qrCanvas.width = video.videoWidth;
+                    qrCanvas.height = video.videoHeight;
+                    qrContext.drawImage(video, 0, 0, qrCanvas.width, qrCanvas.height);
+                    
+                    const imageData = qrContext.getImageData(0, 0, qrCanvas.width, qrCanvas.height);
+                    
+                    if (typeof jsQR !== 'undefined') {
+                        const code = jsQR(imageData.data, imageData.width, imageData.height);
                         
-                        if (barcodes.length > 0) {
-                            const now = Date.now();
-                            if (now - lastScannedTime > 2000) { // 2-second cooldown
-                                const barcode = barcodes[0];
-                                console.log('Barcode detected:', barcode.rawValue);
-                                handleSuccessfulScan(barcode.rawValue);
-                            }
-                        }
-                    } else {
-                        // Fallback: click to scan
-                        if (!video.onclick) {
-                            video.onclick = () => {
-                                const now = Date.now();
-                                if (now - lastScannedTime > 1000) {
-                                    console.log('Manual scan triggered');
-                                    const fakeBarcode = 'TEST' + Math.floor(Math.random() * 10000);
-                                    handleSuccessfulScan(fakeBarcode);
-                                    showStatus('👆 Click video to scan (fallback mode)', 'info');
-                                }
-                            };
-                            showStatus('👆 Click video area to scan barcode', 'info');
+                        if (code) {
+                            handleSuccessfulScan(code.data, 'QR Code');
                         }
                     }
                 } catch (error) {
-                    console.error('Scanning error:', error);
+                    console.error('QR scanning error:', error);
                 }
-            }, 200); // Scan every 200ms
+            }, 300); // Check every 300ms
         }
         
         function stopScanning() {
-            if (scanningInterval) {
-                clearInterval(scanningInterval);
-                scanningInterval = null;
+            // Stop QuaggaJS
+            if (typeof Quagga !== 'undefined') {
+                Quagga.stop();
             }
             
-            const video = document.getElementById('camera-video');
-            if (video) {
-                video.onclick = null;
+            // Stop QR scanning interval
+            if (qrScanInterval) {
+                clearInterval(qrScanInterval);
+                qrScanInterval = null;
             }
         }
         
-        function testGoogleSheets() {
-            console.log('Testing Google Sheets connection...');
-            
-            const testData = {
-                timestamp: new Date().toISOString(),
-                fromLocation: 'TEST-FROM',
-                toLocation: 'OTT19001',
-                parts: [{
-                    barcode: 'TEST123',
-                    quantity: 1
-                }],
-                totalParts: 1,
-                partTypes: 1
-            };
-            
-            showStatus('🧪 Testing Google Sheets connection...', 'info');
-            saveToGoogleSheets(testData);
-        }
-        
-        function testScan() {
-            console.log('Test scan triggered');
-            const testBarcode = 'TEST' + Math.floor(Math.random() * 10000);
-            handleSuccessfulScan(testBarcode);
-            showStatus(`🧪 Test scan: ${testBarcode}`, 'success');
-        }
-        
-        function handleSuccessfulScan(barcode) {
-            lastScannedTime = Date.now();
-            
-            // Add scanned part
-            addScannedPart(barcode);
-            
-            // Visual feedback
-            flashScanSuccess();
-            
-            // Haptic feedback
-            if (navigator.vibrate) {
-                navigator.vibrate([200, 100, 200]);
+        function handleSuccessfulScan(code, scanType) {
+            const now = Date.now();
+            if (now - lastScannedTime > 2000) { // 2-second cooldown
+                lastScannedTime = now;
+                
+                console.log(`${scanType} detected:`, code);
+                
+                // Convert to uppercase for case-insensitivity
+                const normalizedCode = code.trim().toUpperCase();
+                
+                // Add scanned part
+                addScannedPart(normalizedCode);
+                
+                // Visual feedback
+                flashScanSuccess();
+                
+                // Haptic feedback
+                if (navigator.vibrate) {
+                    navigator.vibrate([200, 100, 200]);
+                }
+                
+                showStatus(`📦 ${scanType} Scanned: ${normalizedCode}`, 'success');
             }
-            
-            showStatus(`📦 Scanned: ${barcode}`, 'success');
         }
         
         function flashScanSuccess() {
@@ -744,7 +739,7 @@
         
         function addManualPart() {
             const barcodeInput = document.getElementById('manualBarcode');
-            const barcode = barcodeInput.value.trim().toUpperCase();
+            const barcode = barcodeInput.value.trim().toUpperCase(); // Case-insensitive
             
             if (!barcode) {
                 showStatus('⚠️ Please enter a barcode', 'error');
@@ -758,7 +753,7 @@
         }
         
         function addScannedPart(barcode) {
-            // Check if part already exists
+            // Check if part already exists (case-insensitive)
             const existingPart = parts.find(part => part.barcode === barcode);
             
             if (existingPart) {
@@ -912,7 +907,6 @@
         async function saveToGoogleSheets(transferData) {
             try {
                 console.log('Sending data to Google Sheets:', transferData);
-                console.log('Google Sheets URL:', GOOGLE_SHEETS_URL);
                 
                 if (!GOOGLE_SHEETS_URL) {
                     throw new Error('Google Sheets URL not configured');
@@ -920,113 +914,28 @@
                 
                 showStatus('💾 Saving transfer to Google Sheets...', 'info');
                 
-                // Try fetch with longer timeout and better error handling
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-                
                 const response = await fetch(GOOGLE_SHEETS_URL, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify(transferData),
-                    signal: controller.signal,
-                    mode: 'no-cors' // Try no-cors mode
+                    mode: 'no-cors'
                 });
                 
-                clearTimeout(timeoutId);
+                console.log('Request sent to Google Sheets');
                 
-                console.log('Response received');
-                console.log('Response status:', response.status);
-                console.log('Response type:', response.type);
-                
-                // With no-cors, we can't read the response, so assume success
-                if (response.type === 'opaque') {
-                    console.log('No-cors request completed - assuming success');
-                    const totalItems = transferData.totalParts;
-                    showStatus(`✅ Transfer complete! ${totalItems} items saved`, 'success');
-                    return;
-                }
-                
-                // If we can read the response, parse it normally
-                const responseText = await response.text();
-                console.log('Raw response:', responseText);
-                
-                let result;
-                try {
-                    result = JSON.parse(responseText);
-                } catch (parseError) {
-                    console.error('Failed to parse response as JSON:', parseError);
-                    throw new Error(`Invalid response: ${responseText.substring(0, 100)}`);
-                }
-                
-                console.log('Parsed result:', result);
-                
-                if (result.status === 'success') {
-                    const totalItems = transferData.totalParts;
-                    showStatus(`✅ Transfer complete! ${totalItems} items saved to Google Sheets`, 'success');
-                } else {
-                    throw new Error(result.message || 'Save failed');
-                }
+                // With no-cors, assume success since we can't read the response
+                const totalItems = transferData.totalParts;
+                showStatus(`✅ Transfer complete! ${totalItems} items saved successfully`, 'success');
                 
             } catch (error) {
                 console.error('Google Sheets save error:', error);
-                
-                if (error.name === 'AbortError') {
-                    showStatus('❌ Request timed out - but data may have been saved', 'error');
-                } else if (error.message.includes('Failed to fetch')) {
-                    showStatus('❌ Network error - check connection and try again', 'error');
-                } else {
-                    showStatus(`❌ Save failed: ${error.message}`, 'error');
-                }
+                showStatus('❌ Save failed - please try again', 'error');
             }
         }
         
         function resetForm() {
             document.getElementById('fromLocation').value = '';
             document.getElementById('toLocation').value = '';
-            parts = [];
-            updatePartsList();
-            updateSummary();
-            checkCompleteButton();
-            
-            // Stop camera if active
-            if (cameraActive) {
-                toggleCamera();
-            }
-            
-            // Hide manual input
-            document.getElementById('manualInput').classList.remove('active');
-            
-            showStatus('Ready for next transfer', 'info');
-        }
-        
-        // Initialize app
-        document.addEventListener('DOMContentLoaded', () => {
-            updatePartsList();
-            updateSummary();
-            checkCompleteButton();
-            
-            // Check browser support
-            if (!('mediaDevices' in navigator)) {
-                showStatus('⚠️ Camera not supported', 'error');
-            }
-            
-            // Add event listeners
-            document.getElementById('fromLocation').addEventListener('input', checkCompleteButton);
-            document.getElementById('toLocation').addEventListener('input', checkCompleteButton);
-            
-            document.getElementById('manualBarcode').addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') {
-                    addManualPart();
-                }
-            });
-            
-            // Show setup reminder if Google Sheets not configured
-            if (!GOOGLE_SHEETS_URL || GOOGLE_SHEETS_URL === 'YOUR_GOOGLE_APPS_SCRIPT_URL_HERE') {
-                showStatus('⚠️ Configure Google Sheets URL to save transfers', 'error');
-            }
-        });
-    </script>
-</body>
-</html>
+            parts
